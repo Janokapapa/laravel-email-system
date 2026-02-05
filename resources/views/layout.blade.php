@@ -30,7 +30,10 @@
             <table class="content" width="100%" cellpadding="0" cellspacing="0" role="presentation" style="margin: 0; padding: 0; width: 100%;">
                 <tr>
                     <td class="header" style="padding: 25px 0; text-align: center;">
-                        <a href="{{ config('app.url') }}" style="color: #3d4852; font-size: 19px; font-weight: bold; text-decoration: none;">
+                        <a href="{{ config('email-system.website_url', config('app.url')) }}" style="color: #3d4852; font-size: 19px; font-weight: bold; text-decoration: none;">
+                            @if(config('email-system.logo_url'))
+                                <img src="{{ config('email-system.logo_url') }}" alt="{{ config('app.name') }}" style="max-height: 60px; max-width: 200px; border: none;"><br>
+                            @endif
                             {{ config('app.name') }}
                         </a>
                     </td>
