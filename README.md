@@ -136,6 +136,50 @@ https://your-domain.com/email-system/webhook/mailgun
 | GET | /email-system/track/open/{log_id} | email-system.track.open | Open tracking pixel |
 | POST | /email-system/webhook/mailgun | email-system.webhook.mailgun | Mailgun webhook |
 
+## Permission Protection
+
+The Filament resources are protected by default. Users need one of:
+- `super-admin` role
+- `editor` role
+- `admin` role
+- `manage content` permission
+
+### Custom Permission Override
+
+To use custom permission logic, extend the resource classes in your app:
+
+```php
+// app/Filament/Admin/Resources/EmailTemplateResource.php
+namespace App\Filament\Admin\Resources;
+
+use JanDev\EmailSystem\Filament\Resources\EmailTemplateResource as BaseResource;
+
+class EmailTemplateResource extends BaseResource
+{
+    public static function canAccess(): bool
+    {
+        return auth()->user()?->hasRole('super-admin')
+            || auth()->user()?->hasPermissionTo('manage emails');
+    }
+
+    public static function canViewAny(): bool
+    {
+        return static::canAccess();
+    }
+
+    // ... other can* methods
+}
+```
+
+Then register your custom resource in the plugin:
+
+```php
+EmailSystemPlugin::make()
+    ->resources([
+        \App\Filament\Admin\Resources\EmailTemplateResource::class,
+    ]),
+```
+
 ## License
 
 MIT
