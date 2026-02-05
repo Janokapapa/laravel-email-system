@@ -1,0 +1,32 @@
+{
+    "name": "jandev/laravel-email-system",
+    "description": "Email marketing system with Mailgun integration, audience management, and Filament admin panel",
+    "type": "library",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Jan",
+            "email": "jan@jandev.eu"
+        }
+    ],
+    "require": {
+        "php": "^8.2",
+        "illuminate/support": "^11.0",
+        "filament/filament": "^4.0",
+        "guzzlehttp/guzzle": "^7.0",
+        "mailgun/mailgun-php": "^3.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "JanDev\\EmailSystem\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "JanDev\\EmailSystem\\EmailSystemServiceProvider"
+            ]
+        }
+    },
+    "minimum-stability": "stable"
+}
