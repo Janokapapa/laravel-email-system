@@ -27,7 +27,7 @@ class NewsletterMail extends Mailable
 
         return new Envelope(
             from: new Address($fromAddress, $fromName),
-            to: [new Address($this->emailLog->recipient)],
+            to: [new Address($this->emailLog->recipient, $this->emailLog->recipient_name ?? '')],
             replyTo: [new Address($replyTo)],
             subject: $this->emailLog->subject,
         );

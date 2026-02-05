@@ -15,6 +15,7 @@ class EmailLog extends Model
         'reference_type',
         'reference_id',
         'recipient',
+        'recipient_name',
         'subject',
         'message',
         'sender',

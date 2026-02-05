@@ -102,6 +102,7 @@ class QueueEmailsForAudience implements ShouldQueue
                         'email_template_id' => $template->id,
                         'email_audience_group_id' => $audienceGroup->id,
                         'recipient' => $user->email,
+                        'recipient_name' => $user->name,
                         'subject' => $template->subject,
                         'message' => $template->body,
                         'sender' => $sender,
