@@ -3,7 +3,17 @@
 return [
     /*
     |--------------------------------------------------------------------------
-    | Mailgun Configuration
+    | Mail Driver
+    |--------------------------------------------------------------------------
+    |
+    | Supported: "smtp", "mailgun"
+    |
+    */
+    'driver' => env('EMAIL_SYSTEM_DRIVER', 'smtp'),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Mailgun Configuration (only if driver = mailgun)
     |--------------------------------------------------------------------------
     */
     'mailgun' => [
@@ -11,6 +21,18 @@ return [
         'domain' => env('MAILGUN_DOMAIN'),
         'endpoint' => env('MAILGUN_ENDPOINT', 'https://api.eu.mailgun.net'),
         'webhook_signing_key' => env('MAILGUN_WEBHOOK_SIGNING_KEY'),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | SMTP Configuration (only if driver = smtp)
+    |--------------------------------------------------------------------------
+    |
+    | Uses Laravel's default mail configuration, or specify a custom mailer.
+    |
+    */
+    'smtp' => [
+        'mailer' => env('EMAIL_SYSTEM_MAILER', 'smtp'),
     ],
 
     /*
@@ -27,13 +49,12 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Batch Email Settings
+    | Send Settings
     |--------------------------------------------------------------------------
     */
-    'batch' => [
-        'size' => 500,
-        'max_per_run' => 1000,
-        'delay_ms' => 2000,
+    'send' => [
+        'max_per_run' => 100,
+        'delay_seconds' => 1,
     ],
 
     /*

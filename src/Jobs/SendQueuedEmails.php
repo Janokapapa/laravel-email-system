@@ -5,30 +5,32 @@ namespace JanDev\EmailSystem\Jobs;
 use Exception;
 use JanDev\EmailSystem\Models\EmailLog;
 use JanDev\EmailSystem\Models\AudienceUser;
+use JanDev\EmailSystem\Mail\NewsletterMail;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use Mailgun\Mailgun;
 
 class SendQueuedEmails implements ShouldQueue
 {
     use InteractsWithQueue, Queueable, SerializesModels;
 
-    protected int $batchSize = 500;
-    protected int $maxPerRun = 1000;
-    protected int $batchDelay = 2000;
-
     public function handle()
     {
         $startTime = microtime(true);
+        $driver = config('email-system.driver', 'smtp');
+
+        $maxPerRun = config('email-system.send.max_per_run', 100);
+        $delaySeconds = config('email-system.send.delay_seconds', 1);
 
         // Get queued emails from last 24 hours
         $emails = EmailLog::where('status', 'queued')
             ->where('created_at', '>=', now()->subDay())
-            ->take($this->maxPerRun)
+            ->take($maxPerRun)
             ->get();
 
         if ($emails->isEmpty()) {
@@ -43,38 +45,30 @@ class SendQueuedEmails implements ShouldQueue
 
         Cache::put('email_system_queue_active', true, now()->addHours(24));
 
-        Log::channel('queue')->info("SendQueuedEmails: Processing {$emails->count()} emails in batch mode");
-
-        $mgClient = Mailgun::create(
-            config('email-system.mailgun.secret'),
-            config('email-system.mailgun.endpoint', 'https://api.eu.mailgun.net')
-        );
-        $domain = config('email-system.mailgun.domain');
-        $fromAddress = config('email-system.from.address');
-        $fromName = config('email-system.from.name');
-        $replyToAddress = config('email-system.reply_to', $fromAddress);
+        Log::channel('queue')->info("SendQueuedEmails: Processing {$emails->count()} emails via {$driver}");
 
         $totalSent = 0;
         $totalFailed = 0;
 
-        // Group by template
-        $byTemplate = $emails->groupBy('email_template_id');
+        if ($driver === 'mailgun') {
+            $result = $this->sendViaMailgunBatch($emails);
+            $totalSent = $result['sent'];
+            $totalFailed = $result['failed'];
+        } else {
+            // SMTP - send one by one
+            foreach ($emails as $email) {
+                try {
+                    $this->sendSingleViaSmtp($email);
+                    $totalSent++;
+                } catch (Exception $e) {
+                    $totalFailed++;
+                    Log::channel('queue')->error("SMTP send failed for {$email->recipient}: " . $e->getMessage());
+                }
 
-        foreach ($byTemplate as $templateId => $templateEmails) {
-            foreach ($templateEmails->chunk($this->batchSize) as $batch) {
-                $result = $this->sendBatch(
-                    $mgClient,
-                    $domain,
-                    $fromAddress,
-                    $fromName,
-                    $replyToAddress,
-                    $batch
-                );
-
-                $totalSent += $result['sent'];
-                $totalFailed += $result['failed'];
-
-                usleep($this->batchDelay * 1000);
+                // Delay between emails to avoid rate limiting
+                if ($delaySeconds > 0) {
+                    sleep($delaySeconds);
+                }
             }
         }
 
@@ -87,17 +81,57 @@ class SendQueuedEmails implements ShouldQueue
         Log::channel('queue')->info("SendQueuedEmails completed: {$totalSent} sent, {$totalFailed} failed in {$duration}s");
     }
 
-    protected function sendBatch(
-        Mailgun $mgClient,
-        string $domain,
-        string $fromAddress,
-        string $fromName,
-        string $replyToAddress,
-        $emails
-    ): array {
-        $sent = 0;
-        $failed = 0;
+    protected function sendSingleViaSmtp(EmailLog $emailLog): void
+    {
+        $unsubscribeUrl = $this->generateUnsubscribeUrl($emailLog);
+        $mailer = config('email-system.smtp.mailer', 'smtp');
 
+        Mail::mailer($mailer)->send(new NewsletterMail($emailLog, $unsubscribeUrl));
+
+        $emailLog->update([
+            'status' => 'sent',
+            'error' => null,
+        ]);
+
+        AudienceUser::where('email', $emailLog->recipient)
+            ->whereNull('sent_at')
+            ->update(['sent_at' => now()]);
+
+        Log::channel('queue')->info('Email sent via SMTP to: ' . $emailLog->recipient);
+    }
+
+    protected function sendViaMailgunBatch($emails): array
+    {
+        $batchSize = 500;
+        $batchDelay = 2000;
+        $totalSent = 0;
+        $totalFailed = 0;
+
+        $mgClient = Mailgun::create(
+            config('email-system.mailgun.secret'),
+            config('email-system.mailgun.endpoint', 'https://api.eu.mailgun.net')
+        );
+        $domain = config('email-system.mailgun.domain');
+        $fromAddress = config('email-system.from.address');
+        $fromName = config('email-system.from.name');
+        $replyToAddress = config('email-system.reply_to', $fromAddress);
+
+        $byTemplate = $emails->groupBy('email_template_id');
+
+        foreach ($byTemplate as $templateId => $templateEmails) {
+            foreach ($templateEmails->chunk($batchSize) as $batch) {
+                $result = $this->sendMailgunBatch($mgClient, $domain, $fromAddress, $fromName, $replyToAddress, $batch);
+                $totalSent += $result['sent'];
+                $totalFailed += $result['failed'];
+                usleep($batchDelay * 1000);
+            }
+        }
+
+        return ['sent' => $totalSent, 'failed' => $totalFailed];
+    }
+
+    protected function sendMailgunBatch($mgClient, $domain, $fromAddress, $fromName, $replyToAddress, $emails): array
+    {
         $firstEmail = $emails->first();
         if (!$firstEmail) {
             return ['sent' => 0, 'failed' => 0];
@@ -135,8 +169,8 @@ class SendQueuedEmails implements ShouldQueue
 
             if ($response->getId()) {
                 $messageId = trim($response->getId(), '<>');
-
                 $emailIds = $emails->pluck('id')->toArray();
+
                 EmailLog::whereIn('id', $emailIds)->update([
                     'status' => 'sent',
                     'error' => null,
@@ -148,11 +182,10 @@ class SendQueuedEmails implements ShouldQueue
                     ->whereNull('sent_at')
                     ->update(['sent_at' => now()]);
 
-                $sent = count($emailIds);
-                Log::channel('queue')->info("Batch sent: {$sent} emails, Message ID: {$messageId}");
+                return ['sent' => count($emailIds), 'failed' => 0];
             }
         } catch (Exception $e) {
-            Log::channel('queue')->error("Batch send failed: " . $e->getMessage());
+            Log::channel('queue')->error("Mailgun batch send failed: " . $e->getMessage());
 
             $emailIds = $emails->pluck('id')->toArray();
             EmailLog::whereIn('id', $emailIds)->update([
@@ -160,10 +193,33 @@ class SendQueuedEmails implements ShouldQueue
                 'error' => 'Batch failed: ' . substr($e->getMessage(), 0, 200),
             ]);
 
-            $failed = count($emailIds);
+            return ['sent' => 0, 'failed' => count($emailIds)];
         }
 
-        return ['sent' => $sent, 'failed' => $failed];
+        return ['sent' => 0, 'failed' => 0];
+    }
+
+    protected function generateUnsubscribeUrl(EmailLog $emailLog): ?string
+    {
+        $audienceUser = AudienceUser::where('email', $emailLog->recipient)
+            ->where('is_active', true)
+            ->first();
+
+        if (!$audienceUser) {
+            return null;
+        }
+
+        if (!$audienceUser->unsubscribe_token) {
+            $token = bin2hex(random_bytes(16));
+            AudienceUser::where('email', $emailLog->recipient)->update(['unsubscribe_token' => $token]);
+        } else {
+            $token = $audienceUser->unsubscribe_token;
+        }
+
+        return route('email-system.unsubscribe', [
+            'email' => $emailLog->recipient,
+            'token' => $token,
+        ]);
     }
 
     protected function prepareUnsubscribeTokens($emails): void
@@ -184,15 +240,6 @@ class SendQueuedEmails implements ShouldQueue
 
     protected function getUnsubscribeUrl(EmailLog $emailLog): string
     {
-        // Check for custom unsubscribe URL generator
-        $customGenerator = config('email-system.unsubscribe_url_generator');
-        if (is_callable($customGenerator)) {
-            $url = $customGenerator($emailLog);
-            if ($url) {
-                return $url;
-            }
-        }
-
         $audienceUser = AudienceUser::where('email', $emailLog->recipient)
             ->where('is_active', 1)
             ->first();

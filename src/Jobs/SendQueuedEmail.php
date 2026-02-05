@@ -5,6 +5,7 @@ namespace JanDev\EmailSystem\Jobs;
 use Exception;
 use JanDev\EmailSystem\Models\EmailLog;
 use JanDev\EmailSystem\Models\AudienceUser;
+use JanDev\EmailSystem\Mail\NewsletterMail;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -12,6 +13,7 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use Mailgun\Mailgun;
 
 class SendQueuedEmail implements ShouldQueue
@@ -37,57 +39,14 @@ class SendQueuedEmail implements ShouldQueue
             return;
         }
 
+        $driver = config('email-system.driver', 'smtp');
+
         try {
-            DB::transaction(function () {
-                $unsubscribeUrl = $this->generateUnsubscribeUrl();
-
-                $mgClient = Mailgun::create(
-                    config('email-system.mailgun.secret'),
-                    config('email-system.mailgun.endpoint', 'https://api.eu.mailgun.net')
-                );
-
-                $domain = config('email-system.mailgun.domain');
-
-                $htmlContent = view('email-system::newsletter', [
-                    'emailLog' => $this->emailLog,
-                    'subject' => $this->emailLog->subject,
-                    'messageContent' => $this->emailLog->message,
-                    'unsubscribeUrl' => $unsubscribeUrl,
-                ])->render();
-
-                $fromAddress = config('email-system.from.address');
-                $fromName = config('email-system.from.name');
-                $replyTo = config('email-system.reply_to', $fromAddress);
-
-                $response = $mgClient->messages()->send($domain, [
-                    'from' => "{$fromName} <{$fromAddress}>",
-                    'to' => $this->emailLog->recipient,
-                    'subject' => $this->emailLog->subject,
-                    'html' => $htmlContent,
-                    'h:Reply-To' => $replyTo,
-                ]);
-
-                if ($response->getId()) {
-                    $messageId = trim($response->getId(), '<>');
-
-                    $this->emailLog->update([
-                        'status' => 'sent',
-                        'error' => null,
-                        'mailgun_message_id' => $messageId,
-                    ]);
-
-                    AudienceUser::where('email', $this->emailLog->recipient)
-                        ->whereNull('sent_at')
-                        ->update(['sent_at' => now()]);
-
-                    Log::channel('queue')->info('Email sent. Message ID: ' . $messageId);
-                } else {
-                    $this->emailLog->update([
-                        'status' => 'failed',
-                        'error' => json_encode($response),
-                    ]);
-                }
-            });
+            if ($driver === 'mailgun') {
+                $this->sendViaMailgun();
+            } else {
+                $this->sendViaSmtp();
+            }
         } catch (Exception $e) {
             $this->emailLog->update([
                 'status' => 'failed',
@@ -96,6 +55,83 @@ class SendQueuedEmail implements ShouldQueue
             Log::channel('queue')->error('SendQueuedEmail error: ' . $e->getMessage());
             throw $e;
         }
+    }
+
+    protected function sendViaSmtp(): void
+    {
+        $unsubscribeUrl = $this->generateUnsubscribeUrl();
+
+        $mailer = config('email-system.smtp.mailer', 'smtp');
+
+        Mail::mailer($mailer)->send(new NewsletterMail(
+            $this->emailLog,
+            $unsubscribeUrl
+        ));
+
+        $this->emailLog->update([
+            'status' => 'sent',
+            'error' => null,
+        ]);
+
+        AudienceUser::where('email', $this->emailLog->recipient)
+            ->whereNull('sent_at')
+            ->update(['sent_at' => now()]);
+
+        Log::channel('queue')->info('Email sent via SMTP to: ' . $this->emailLog->recipient);
+    }
+
+    protected function sendViaMailgun(): void
+    {
+        DB::transaction(function () {
+            $unsubscribeUrl = $this->generateUnsubscribeUrl();
+
+            $mgClient = Mailgun::create(
+                config('email-system.mailgun.secret'),
+                config('email-system.mailgun.endpoint', 'https://api.eu.mailgun.net')
+            );
+
+            $domain = config('email-system.mailgun.domain');
+
+            $htmlContent = view('email-system::newsletter', [
+                'emailLog' => $this->emailLog,
+                'subject' => $this->emailLog->subject,
+                'messageContent' => $this->emailLog->message,
+                'unsubscribeUrl' => $unsubscribeUrl,
+            ])->render();
+
+            $fromAddress = config('email-system.from.address');
+            $fromName = config('email-system.from.name');
+            $replyTo = config('email-system.reply_to', $fromAddress);
+
+            $response = $mgClient->messages()->send($domain, [
+                'from' => "{$fromName} <{$fromAddress}>",
+                'to' => $this->emailLog->recipient,
+                'subject' => $this->emailLog->subject,
+                'html' => $htmlContent,
+                'h:Reply-To' => $replyTo,
+            ]);
+
+            if ($response->getId()) {
+                $messageId = trim($response->getId(), '<>');
+
+                $this->emailLog->update([
+                    'status' => 'sent',
+                    'error' => null,
+                    'mailgun_message_id' => $messageId,
+                ]);
+
+                AudienceUser::where('email', $this->emailLog->recipient)
+                    ->whereNull('sent_at')
+                    ->update(['sent_at' => now()]);
+
+                Log::channel('queue')->info('Email sent via Mailgun. Message ID: ' . $messageId);
+            } else {
+                $this->emailLog->update([
+                    'status' => 'failed',
+                    'error' => json_encode($response),
+                ]);
+            }
+        });
     }
 
     protected function generateUnsubscribeUrl(): ?string
