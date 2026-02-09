@@ -14,6 +14,7 @@ use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
+
 use function JanDev\EmailSystem\resolve_callback;
 
 class EditEmailTemplate extends EditRecord
@@ -155,20 +156,38 @@ class EditEmailTemplate extends EditRecord
                     return;
                 }
 
-                // Store data and open confirmation action
+                // Store data - the confirm button will appear in the header
                 $this->pendingAudienceGroupId = $audienceGroup->id;
                 $this->pendingSkipYahoo = $skipYahoo;
                 $this->pendingNewCount = $newCount;
                 $this->pendingAlreadySentCount = $alreadySentCount;
 
-                $this->js("setTimeout(() => \$wire.mountAction('confirmSend'), 300)");
+                $skipInfo = $alreadySentCount > 0
+                    ? ' (' . number_format($alreadySentCount) . ' ' . __('already sent, skipped') . ')'
+                    : '';
+
+                Notification::make()
+                    ->title(__('Ready to send'))
+                    ->body(number_format($newCount) . ' ' . __('new recipients found') . $skipInfo . '. ' . __('Click the "Confirm & Send" button to proceed.'))
+                    ->info()
+                    ->persistent()
+                    ->send();
             });
     }
 
     protected function confirmSendAction(): Action
     {
         return Action::make('confirmSend')
-            ->hidden()
+            ->label(function () {
+                if ($this->pendingNewCount) {
+                    return __('Confirm & Send') . ' (' . number_format($this->pendingNewCount) . ')';
+                }
+                return __('Confirm & Send');
+            })
+            ->icon('heroicon-o-check-circle')
+            ->color('success')
+            ->visible(fn () => $this->pendingNewCount !== null)
+            ->requiresConfirmation()
             ->modalHeading(__('Confirm sending'))
             ->modalDescription(function () {
                 $lines = [];
@@ -179,7 +198,6 @@ class EditEmailTemplate extends EditRecord
                 return implode("\n", $lines);
             })
             ->modalSubmitActionLabel(__('Send'))
-            ->requiresConfirmation()
             ->action(function () {
                 if (!$this->pendingAudienceGroupId || !$this->pendingNewCount) {
                     return;
