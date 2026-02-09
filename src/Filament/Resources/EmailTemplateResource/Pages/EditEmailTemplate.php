@@ -14,6 +14,7 @@ use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
+use Livewire\Attributes\On;
 
 use function JanDev\EmailSystem\resolve_callback;
 
@@ -162,8 +163,14 @@ class EditEmailTemplate extends EditRecord
                 $this->pendingNewCount = $newCount;
                 $this->pendingAlreadySentCount = $alreadySentCount;
 
-                $this->mountAction('confirmSend');
+                $this->dispatch('open-confirm-send');
             });
+    }
+
+    #[On('open-confirm-send')]
+    public function openConfirmSend(): void
+    {
+        $this->mountAction('confirmSend');
     }
 
     protected function confirmSendAction(): Action
