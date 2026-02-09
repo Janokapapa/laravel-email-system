@@ -109,32 +109,34 @@ class EditEmailTemplate extends EditRecord
                 $audienceGroup = EmailAudienceGroup::findOrFail($data['audienceGroupId']);
                 $skipYahoo = $data['skipYahoo'] ?? false;
 
-                // Calculate new recipients count
-                $alreadySentEmails = EmailLog::where('email_template_id', $this->record->id)
-                    ->whereIn('status', ['sent', 'queued'])
-                    ->pluck('recipient');
+                // Use subqueries to avoid "too many placeholders" with large datasets
+                $alreadySentQuery = EmailLog::where('email_template_id', $this->record->id)
+                    ->whereIn('status', ['sent', 'queued']);
+
+                $alreadySentCount = $alreadySentQuery->count();
 
                 $query = $audienceGroup->audienceUsers()
                     ->where('is_active', true)
                     ->where('bounced', false)
-                    ->whereNotIn('email', $alreadySentEmails);
+                    ->whereNotIn('email', (clone $alreadySentQuery)->select('recipient'));
 
-                // Exclude blocked (bounced/inactive in other groups)
-                $blockedEmails = AudienceUser::where(function ($q) {
+                // Exclude blocked (bounced/inactive in other groups) via subquery
+                $blockedQuery = AudienceUser::where(function ($q) {
                         $q->where('is_active', false)->orWhere('bounced', true);
-                    })->pluck('email');
+                    })->select('email');
 
-                // Get additional blocked from config
-                $additionalBlocked = collect();
+                $query->whereNotIn('email', $blockedQuery);
+
+                // Get additional blocked from config callback
                 $blockedCallback = resolve_callback(config('email-system.blocked_emails_callback'));
                 if ($blockedCallback) {
                     $additionalBlocked = collect($blockedCallback());
-                }
-
-                $excludeEmails = $blockedEmails->merge($additionalBlocked)->unique();
-
-                if ($excludeEmails->isNotEmpty()) {
-                    $query->whereNotIn('email', $excludeEmails);
+                    if ($additionalBlocked->isNotEmpty()) {
+                        // Chunk to avoid placeholder limit
+                        foreach ($additionalBlocked->chunk(5000) as $chunk) {
+                            $query->whereNotIn('email', $chunk);
+                        }
+                    }
                 }
 
                 if ($skipYahoo) {
@@ -142,7 +144,6 @@ class EditEmailTemplate extends EditRecord
                 }
 
                 $newCount = $query->count();
-                $alreadySentCount = $alreadySentEmails->count();
 
                 if ($newCount === 0) {
                     Notification::make()
