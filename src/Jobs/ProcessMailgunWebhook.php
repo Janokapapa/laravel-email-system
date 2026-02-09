@@ -10,6 +10,8 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 
+use function JanDev\EmailSystem\resolve_callback;
+
 class ProcessMailgunWebhook implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
@@ -93,8 +95,8 @@ class ProcessMailgunWebhook implements ShouldQueue
             ]);
 
             // Call custom bounce handler if configured
-            $bounceHandler = config('email-system.bounce_handler');
-            if (is_callable($bounceHandler)) {
+            $bounceHandler = resolve_callback(config('email-system.bounce_handler'));
+            if ($bounceHandler) {
                 $bounceHandler($recipient, $bounceReason);
             }
         }
@@ -117,8 +119,8 @@ class ProcessMailgunWebhook implements ShouldQueue
         if ($recipient) {
             AudienceUser::where('email', $recipient)->update(['is_active' => false]);
 
-            $complaintHandler = config('email-system.complaint_handler');
-            if (is_callable($complaintHandler)) {
+            $complaintHandler = resolve_callback(config('email-system.complaint_handler'));
+            if ($complaintHandler) {
                 $complaintHandler($recipient);
             }
         }
@@ -131,8 +133,8 @@ class ProcessMailgunWebhook implements ShouldQueue
         if ($recipient) {
             AudienceUser::where('email', $recipient)->update(['is_active' => false]);
 
-            $unsubscribeHandler = config('email-system.unsubscribe_handler');
-            if (is_callable($unsubscribeHandler)) {
+            $unsubscribeHandler = resolve_callback(config('email-system.unsubscribe_handler'));
+            if ($unsubscribeHandler) {
                 $unsubscribeHandler($recipient);
             }
         }

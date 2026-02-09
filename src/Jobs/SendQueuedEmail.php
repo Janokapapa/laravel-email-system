@@ -35,6 +35,9 @@ class SendQueuedEmail implements ShouldQueue
             Log::channel('queue')->warning('DUPLICATE PREVENTED: Email already sent', [
                 'email_log_id' => $this->emailLog->id,
                 'recipient' => $this->emailLog->recipient,
+                'subject' => $this->emailLog->subject,
+                'mailgun_message_id' => $this->emailLog->mailgun_message_id,
+                'attempt' => $this->attempts(),
             ]);
             return;
         }

@@ -6,6 +6,8 @@ use JanDev\EmailSystem\Models\AudienceUser;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 
+use function JanDev\EmailSystem\resolve_callback;
+
 class UnsubscribeController extends Controller
 {
     public function unsubscribe(Request $request)
@@ -39,8 +41,8 @@ class UnsubscribeController extends Controller
         ]);
 
         // Call custom unsubscribe handler if configured
-        $handler = config('email-system.unsubscribe_handler');
-        if (is_callable($handler)) {
+        $handler = resolve_callback(config('email-system.unsubscribe_handler'));
+        if ($handler) {
             $handler($email);
         }
 

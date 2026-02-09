@@ -7,6 +7,7 @@ use Filament\Panel;
 use JanDev\EmailSystem\Filament\Resources\EmailTemplateResource;
 use JanDev\EmailSystem\Filament\Resources\EmailAudienceGroupResource;
 use JanDev\EmailSystem\Filament\Resources\EmailLogResource;
+use JanDev\EmailSystem\Filament\Resources\AudienceUserResource;
 
 class EmailSystemPlugin implements Plugin
 {
@@ -21,6 +22,7 @@ class EmailSystemPlugin implements Plugin
             EmailTemplateResource::class,
             EmailAudienceGroupResource::class,
             EmailLogResource::class,
+            AudienceUserResource::class,
         ]);
     }
 

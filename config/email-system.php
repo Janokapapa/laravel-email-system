@@ -126,4 +126,53 @@ return [
     // Called when someone unsubscribes
     // function(string $email) { ... }
     'unsubscribe_handler' => null,
+
+    /*
+    |--------------------------------------------------------------------------
+    | Admin Email (for watchdog alerts)
+    |--------------------------------------------------------------------------
+    */
+    'admin_email' => env('EMAIL_SYSTEM_ADMIN_EMAIL'),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Audience Callbacks
+    |--------------------------------------------------------------------------
+    |
+    | Callbacks for adding users from the host application's user table.
+    |
+    */
+
+    // Return Collection of users with name, email fields
+    // function(): Collection { return User::where('want_newsletter', 1)->get(); }
+    'add_subscribed_users_callback' => null,
+
+    // Return Collection of users by date range
+    // function(string $dateFrom, string $dateTo): Collection { ... }
+    'add_users_by_date_callback' => null,
+
+    /*
+    |--------------------------------------------------------------------------
+    | Merge Callbacks
+    |--------------------------------------------------------------------------
+    */
+
+    // Called when audience merge completes
+    // function(int $userId, array $stats) { ... }
+    'merge_completion_callback' => null,
+
+    // Called when audience merge fails
+    // function(int $userId, string $error) { ... }
+    'merge_failure_callback' => null,
+
+    /*
+    |--------------------------------------------------------------------------
+    | Cleanup Callback
+    |--------------------------------------------------------------------------
+    |
+    | Custom cleanup for mailgun events table if it exists in host app.
+    | function(int $days, Carbon $cutoff): int { return $deletedCount; }
+    |
+    */
+    'cleanup_events_callback' => null,
 ];

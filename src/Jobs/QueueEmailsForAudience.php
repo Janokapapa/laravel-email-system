@@ -13,6 +13,8 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
 
+use function JanDev\EmailSystem\resolve_callback;
+
 class QueueEmailsForAudience implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
@@ -57,8 +59,8 @@ class QueueEmailsForAudience implements ShouldQueue
 
         // Get additional blocked emails from config callback
         $additionalBlocked = [];
-        $blockedCallback = config('email-system.blocked_emails_callback');
-        if (is_callable($blockedCallback)) {
+        $blockedCallback = resolve_callback(config('email-system.blocked_emails_callback'));
+        if ($blockedCallback) {
             $additionalBlocked = $blockedCallback();
         }
 
@@ -66,6 +68,16 @@ class QueueEmailsForAudience implements ShouldQueue
         $blockedEmails = array_flip(array_unique(array_merge($blockedFromAudience, $additionalBlocked)));
 
         Log::channel('queue')->info("QueueEmailsForAudience: Blocked emails count: " . count($blockedEmails));
+
+        // Get emails already sent/queued for this template (prevent duplicate sends)
+        $alreadySentEmails = array_flip(
+            EmailLog::where('email_template_id', $template->id)
+                ->whereIn('status', ['sent', 'queued'])
+                ->pluck('recipient')
+                ->toArray()
+        );
+
+        Log::channel('queue')->info("QueueEmailsForAudience: Already sent/queued for this template: " . count($alreadySentEmails));
 
         // Get sender from config
         $sender = config('email-system.from.address');
@@ -76,16 +88,23 @@ class QueueEmailsForAudience implements ShouldQueue
         $queuedCount = 0;
         $skippedCount = 0;
         $yahooSkippedCount = 0;
+        $alreadySentSkippedCount = 0;
 
         // Process in chunks to avoid memory issues
         $audienceGroup->audienceUsers()
             ->where('is_active', true)
             ->where('bounced', false)
             ->chunkById(1000, function ($users) use (
-                $template, $audienceGroup, $sender, $blockedEmails,
-                &$batchData, &$queuedCount, &$skippedCount, &$yahooSkippedCount, $batchSize
+                $template, $audienceGroup, $sender, $blockedEmails, $alreadySentEmails,
+                &$batchData, &$queuedCount, &$skippedCount, &$yahooSkippedCount, &$alreadySentSkippedCount, $batchSize
             ) {
                 foreach ($users as $user) {
+                    // Skip if already sent/queued for this template
+                    if (isset($alreadySentEmails[$user->email])) {
+                        $alreadySentSkippedCount++;
+                        continue;
+                    }
+
                     // Skip Yahoo/Ymail if enabled
                     if ($this->skipYahoo && preg_match('/@(yahoo|ymail)\./i', $user->email)) {
                         $yahooSkippedCount++;
@@ -127,14 +146,15 @@ class QueueEmailsForAudience implements ShouldQueue
 
         $duration = round(microtime(true) - $startTime, 2);
 
-        Log::channel('queue')->info("QueueEmailsForAudience completed: {$queuedCount} queued, {$skippedCount} blocked, {$yahooSkippedCount} yahoo in {$duration}s");
+        Log::channel('queue')->info("QueueEmailsForAudience completed: {$queuedCount} queued, {$alreadySentSkippedCount} already sent, {$skippedCount} blocked, {$yahooSkippedCount} yahoo in {$duration}s");
 
         // Send notification callback if configured
-        $notificationCallback = config('email-system.queue_completion_callback');
-        if (is_callable($notificationCallback)) {
+        $notificationCallback = resolve_callback(config('email-system.queue_completion_callback'));
+        if ($notificationCallback) {
             $notificationCallback($this->userId, [
                 'queued' => $queuedCount,
                 'skipped' => $skippedCount,
+                'already_sent_skipped' => $alreadySentSkippedCount,
                 'yahoo_skipped' => $yahooSkippedCount,
                 'duration' => $duration,
             ]);
@@ -145,8 +165,8 @@ class QueueEmailsForAudience implements ShouldQueue
     {
         Log::channel('queue')->error("QueueEmailsForAudience failed: " . $exception->getMessage());
 
-        $failureCallback = config('email-system.queue_failure_callback');
-        if (is_callable($failureCallback)) {
+        $failureCallback = resolve_callback(config('email-system.queue_failure_callback'));
+        if ($failureCallback) {
             $failureCallback($this->userId, $exception->getMessage());
         }
     }

@@ -41,6 +41,11 @@ class AudienceUser extends Model
         return $query->where('email', $email);
     }
 
+    public function scopeByEmailAudienceGroup($query, $groupId)
+    {
+        return $query->where('email_audience_group_id', $groupId);
+    }
+
     public function scopeNotBounced($query)
     {
         return $query->where('bounced', false);

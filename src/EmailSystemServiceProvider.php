@@ -40,6 +40,16 @@ class EmailSystemServiceProvider extends ServiceProvider
 
         // Register routes with configured prefix and middleware
         $this->registerRoutes();
+
+        // Register console commands
+        if ($this->app->runningInConsole()) {
+            $this->commands([
+                Console\Commands\EmailDuplicateWatchdog::class,
+                Console\Commands\FixEmailStatusFromMailgun::class,
+                Console\Commands\SyncMailgunSuppressions::class,
+                Console\Commands\CleanupMailgunEvents::class,
+            ]);
+        }
     }
 
     protected function registerRoutes(): void

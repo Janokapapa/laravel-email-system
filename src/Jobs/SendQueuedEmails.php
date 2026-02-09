@@ -15,6 +15,8 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Mailgun\Mailgun;
 
+use function JanDev\EmailSystem\resolve_callback;
+
 class SendQueuedEmails implements ShouldQueue
 {
     use InteractsWithQueue, Queueable, SerializesModels;
@@ -256,8 +258,8 @@ class SendQueuedEmails implements ShouldQueue
 
     protected function sendCompletionNotification(): void
     {
-        $callback = config('email-system.send_completion_callback');
-        if (!is_callable($callback)) {
+        $callback = resolve_callback(config('email-system.send_completion_callback'));
+        if (!$callback) {
             return;
         }
 

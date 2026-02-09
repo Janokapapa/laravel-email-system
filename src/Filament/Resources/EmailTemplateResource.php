@@ -8,9 +8,10 @@ use JanDev\EmailSystem\Models\EmailLog;
 use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Forms\Components\TextInput;
-use Filament\Forms\Components\RichEditor;
+use Filament\Forms\Components\Field;
 use Filament\Tables\Table;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Columns\ViewColumn;
 use Filament\Actions\Action;
 
 class EmailTemplateResource extends Resource
@@ -41,6 +42,16 @@ class EmailTemplateResource extends Resource
 
     public static function form(Schema $schema): Schema
     {
+        $tiny = fn (string $path, string $label, int $height = 600, ?int $maxWidth = null) =>
+        Field::make($path)
+            ->label($label)
+            ->view('email-system::forms.tinymce')
+            ->extraAttributes(['height' => $height, 'maxWidth' => $maxWidth])
+            ->columnSpanFull()
+            ->reactive()
+            ->dehydrated(true)
+            ->dehydrateStateUsing(fn ($state) => $state);
+
         return $schema->columns(1)->components([
             TextInput::make('name')
                 ->required()
@@ -50,10 +61,7 @@ class EmailTemplateResource extends Resource
                 ->required()
                 ->label(__('Subject')),
 
-            RichEditor::make('body')
-                ->required()
-                ->label(__('Email Body'))
-                ->columnSpanFull(),
+            $tiny('body', __('Email Body'), 700, 620),
         ]);
     }
 
@@ -70,10 +78,9 @@ class EmailTemplateResource extends Resource
                     ->label(__('Subject'))
                     ->sortable()
                     ->limit(40),
-                TextColumn::make('emails_sent')
-                    ->label(__('Sent'))
-                    ->getStateUsing(fn ($record) => EmailLog::where('email_template_id', $record->id)->where('status', 'sent')->count())
-                    ->color('success'),
+                ViewColumn::make('send_statistics')
+                    ->label(__('Send Statistics'))
+                    ->view('email-system::filament.tables.email-template-stats'),
                 TextColumn::make('created_at')
                     ->label(__('Created At'))
                     ->dateTime('Y-m-d H:i:s')
@@ -90,7 +97,8 @@ class EmailTemplateResource extends Resource
                     ->modalCancelActionLabel(__('Close'))
                     ->modalContent(fn ($record) => view('email-system::filament.email-template-stats', [
                         'record' => $record,
-                        'stats' => EmailLog::where('email_template_id', $record->id)
+                        'stats' => $record->getSendStatistics(),
+                        'detailedStats' => EmailLog::where('email_template_id', $record->id)
                             ->selectRaw("
                                 COUNT(*) as total,
                                 SUM(CASE WHEN status = 'sent' THEN 1 ELSE 0 END) as sent,
@@ -98,7 +106,9 @@ class EmailTemplateResource extends Resource
                                 SUM(CASE WHEN status = 'queued' THEN 1 ELSE 0 END) as queued,
                                 SUM(opened) as opened_count,
                                 SUM(clicked) as clicked_count,
-                                SUM(complained) as complained_count
+                                SUM(complained) as complained_count,
+                                SUM(CASE WHEN bounce_type = 'hard' THEN 1 ELSE 0 END) as hard_bounce,
+                                SUM(CASE WHEN bounce_type = 'soft' THEN 1 ELSE 0 END) as soft_bounce
                             ")
                             ->first(),
                     ])),
