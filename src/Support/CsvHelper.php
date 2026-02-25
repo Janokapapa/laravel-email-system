@@ -71,6 +71,89 @@ class CsvHelper
     }
 
     /**
+     * Detect CSV headers and separator from a file path.
+     * Handles UTF-8 BOM and auto-detects ; vs , separator.
+     *
+     * @return array{headers: array<string>, separator: string}|null
+     */
+    public static function detectHeaders(string $filePath): ?array
+    {
+        if (!file_exists($filePath)) {
+            return null;
+        }
+
+        $handle = fopen($filePath, 'r');
+        if (!$handle) {
+            return null;
+        }
+
+        $firstLine = fgets($handle);
+        fclose($handle);
+
+        if (!$firstLine) {
+            return null;
+        }
+
+        $firstLine = trim(preg_replace('/^\xEF\xBB\xBF/', '', $firstLine));
+
+        $semicolons = substr_count($firstLine, ';');
+        $commas = substr_count($firstLine, ',');
+        $separator = $semicolons >= $commas ? ';' : ',';
+
+        $headers = array_map('trim', str_getcsv($firstLine, $separator));
+
+        return empty($headers) ? null : ['headers' => $headers, 'separator' => $separator];
+    }
+
+    /**
+     * Auto-detect a column index from headers by matching aliases (case-insensitive).
+     *
+     * @param  array<string> $headers
+     * @param  array<string> $aliases
+     */
+    public static function autoDetectColumn(array $headers, array $aliases): ?string
+    {
+        foreach ($headers as $i => $header) {
+            $normalized = strtolower(trim($header));
+            foreach ($aliases as $alias) {
+                if ($normalized === strtolower($alias)) {
+                    return (string) $i;
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Parse and validate a single field value by type.
+     *
+     * @return array{value: mixed, error: string|null}
+     */
+    public static function parseFieldValue(string $value, string $slug, string $type): array
+    {
+        switch ($type) {
+            case 'number':
+                if (!is_numeric($value)) {
+                    return ['value' => null, 'error' => "Invalid number for '{$slug}': {$value}"];
+                }
+                return ['value' => $value + 0, 'error' => null];
+            case 'boolean':
+                if (!in_array($value, ['0', '1', 'true', 'false'], true)) {
+                    return ['value' => null, 'error' => "Invalid boolean for '{$slug}': {$value}"];
+                }
+                return ['value' => in_array($value, ['1', 'true'], true), 'error' => null];
+            case 'date':
+                $date = \DateTime::createFromFormat('Y-m-d', $value);
+                if (!$date || $date->format('Y-m-d') !== $value) {
+                    return ['value' => null, 'error' => "Invalid date for '{$slug}': {$value}"];
+                }
+                return ['value' => $value, 'error' => null];
+            default:
+                return ['value' => $value, 'error' => null];
+        }
+    }
+
+    /**
      * Parse a CSV data row using the CSV header to extract name, email, and custom fields.
      * Validates types: number must be numeric, boolean must be 0/1/true/false, date must be Y-m-d.
      * Invalid values are skipped (not added to custom_fields) and reported via $errors.

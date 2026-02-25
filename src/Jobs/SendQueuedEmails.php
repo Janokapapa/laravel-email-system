@@ -6,6 +6,7 @@ use Exception;
 use JanDev\EmailSystem\Models\EmailLog;
 use JanDev\EmailSystem\Models\AudienceUser;
 use JanDev\EmailSystem\Mail\NewsletterMail;
+use JanDev\EmailSystem\Support\SenderResolver;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Queue\InteractsWithQueue;
@@ -24,12 +25,12 @@ class SendQueuedEmails implements ShouldQueue
     public function handle()
     {
         $startTime = microtime(true);
-        $driver = config('email-system.driver', 'smtp');
+        $defaultDriver = config('email-system.driver', 'smtp');
 
         $maxPerRun = config('email-system.send.max_per_run', 100);
         $delaySeconds = config('email-system.send.delay_seconds', 1);
 
-        // Get queued emails from last 24 hours
+        // Only process 'queued' emails — 'spooled' (PMTA) are handled by PmtaSync command
         $emails = EmailLog::where('status', 'queued')
             ->where('created_at', '>=', now()->subDay())
             ->take($maxPerRun)
@@ -47,31 +48,59 @@ class SendQueuedEmails implements ShouldQueue
 
         Cache::put('email_system_queue_active', true, now()->addHours(24));
 
-        Log::channel('queue')->info("SendQueuedEmails: Processing {$emails->count()} emails via {$driver}");
+        Log::channel('queue')->info("SendQueuedEmails: Processing {$emails->count()} queued emails");
 
         $totalSent = 0;
         $totalFailed = 0;
 
-        if ($driver === 'mailgun') {
-            $result = $this->sendViaMailgunBatch($emails);
-            $totalSent = $result['sent'];
-            $totalFailed = $result['failed'];
-        } else {
-            // SMTP - send one by one
-            foreach ($emails as $email) {
-                try {
-                    $this->sendSingleViaSmtp($email);
-                    $totalSent++;
-                } catch (Exception $e) {
-                    $totalFailed++;
-                    Log::channel('queue')->error("SMTP send failed for {$email->recipient}: " . $e->getMessage());
-                }
+        // Group emails by resolved sender type
+        $smtpEmails = collect();
+        $mailgunBySender = collect(); // keyed by sender_name (or '' for global)
 
-                // Delay between emails to avoid rate limiting
-                if ($delaySeconds > 0) {
-                    sleep($delaySeconds);
+        foreach ($emails as $email) {
+            $senderConfig = $email->sender_name ? SenderResolver::get($email->sender_name) : null;
+            $senderType = $senderConfig['type'] ?? $defaultDriver;
+
+            if ($senderType === 'pmta') {
+                // PMTA emails should be 'spooled', not 'queued' — skip and log
+                Log::channel('queue')->warning("SendQueuedEmails: PMTA email found with queued status, skipping", [
+                    'email_log_id' => $email->id,
+                    'sender_name' => $email->sender_name,
+                ]);
+                continue;
+            } elseif ($senderType === 'mailgun') {
+                $key = $email->sender_name ?? '';
+                if (!$mailgunBySender->has($key)) {
+                    $mailgunBySender->put($key, collect());
                 }
+                $mailgunBySender->get($key)->push($email);
+            } else {
+                $smtpEmails->push($email);
             }
+        }
+
+        // Send SMTP emails one by one
+        foreach ($smtpEmails as $email) {
+            try {
+                $senderConfig = $email->sender_name ? SenderResolver::get($email->sender_name) : null;
+                $this->sendSingleViaSmtp($email, $senderConfig);
+                $totalSent++;
+            } catch (Exception $e) {
+                $totalFailed++;
+                Log::channel('queue')->error("SMTP send failed for {$email->recipient}: " . $e->getMessage());
+            }
+
+            if ($delaySeconds > 0) {
+                sleep($delaySeconds);
+            }
+        }
+
+        // Send Mailgun emails in batches, grouped by sender
+        foreach ($mailgunBySender as $senderKey => $senderEmails) {
+            $senderConfig = $senderKey ? SenderResolver::get($senderKey) : null;
+            $result = $this->sendViaMailgunBatch($senderEmails, $senderConfig);
+            $totalSent += $result['sent'];
+            $totalFailed += $result['failed'];
         }
 
         // Mark old queued emails as skipped
@@ -83,12 +112,12 @@ class SendQueuedEmails implements ShouldQueue
         Log::channel('queue')->info("SendQueuedEmails completed: {$totalSent} sent, {$totalFailed} failed in {$duration}s");
     }
 
-    protected function sendSingleViaSmtp(EmailLog $emailLog): void
+    protected function sendSingleViaSmtp(EmailLog $emailLog, ?array $senderConfig = null): void
     {
         $unsubscribeUrl = $this->generateUnsubscribeUrl($emailLog);
-        $mailer = config('email-system.smtp.mailer', 'smtp');
+        $mailer = $senderConfig['smtp_mailer'] ?? config('email-system.smtp.mailer', 'smtp');
 
-        Mail::mailer($mailer)->send(new NewsletterMail($emailLog, $unsubscribeUrl));
+        Mail::mailer($mailer)->send(new NewsletterMail($emailLog, $unsubscribeUrl, $senderConfig));
 
         $emailLog->update([
             'status' => 'sent',
@@ -102,7 +131,7 @@ class SendQueuedEmails implements ShouldQueue
         Log::channel('queue')->info('Email sent via SMTP to: ' . $emailLog->recipient);
     }
 
-    protected function sendViaMailgunBatch($emails): array
+    protected function sendViaMailgunBatch($emails, ?array $senderConfig = null): array
     {
         $batchSize = 500;
         $batchDelay = 2000;
@@ -110,13 +139,13 @@ class SendQueuedEmails implements ShouldQueue
         $totalFailed = 0;
 
         $mgClient = Mailgun::create(
-            config('email-system.mailgun.secret'),
-            config('email-system.mailgun.endpoint', 'https://api.eu.mailgun.net')
+            $senderConfig['mailgun_secret'] ?? config('email-system.mailgun.secret'),
+            $senderConfig['mailgun_endpoint'] ?? config('email-system.mailgun.endpoint', 'https://api.eu.mailgun.net')
         );
-        $domain = config('email-system.mailgun.domain');
-        $fromAddress = config('email-system.from.address');
-        $fromName = config('email-system.from.name');
-        $replyToAddress = config('email-system.reply_to', $fromAddress);
+        $domain = $senderConfig['mailgun_domain'] ?? config('email-system.mailgun.domain');
+        $fromAddress = $senderConfig['from_address'] ?? config('email-system.from.address');
+        $fromName = $senderConfig['from_name'] ?? config('email-system.from.name');
+        $replyToAddress = $senderConfig['reply_to'] ?? config('email-system.reply_to', $fromAddress);
 
         $byTemplate = $emails->groupBy('email_template_id');
 

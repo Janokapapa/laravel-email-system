@@ -6,6 +6,9 @@ use Exception;
 use JanDev\EmailSystem\Models\EmailLog;
 use JanDev\EmailSystem\Models\AudienceUser;
 use JanDev\EmailSystem\Mail\NewsletterMail;
+use JanDev\EmailSystem\Support\PmtaSpooler;
+use JanDev\EmailSystem\Support\SenderResolver;
+use JanDev\EmailSystem\Support\ProviderResolver;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -42,13 +45,19 @@ class SendQueuedEmail implements ShouldQueue
             return;
         }
 
-        $driver = config('email-system.driver', 'smtp');
+        $senderConfig = $this->emailLog->sender_name
+            ? SenderResolver::get($this->emailLog->sender_name)
+            : null;
+
+        $senderType = $senderConfig['type'] ?? config('email-system.driver', 'smtp');
 
         try {
-            if ($driver === 'mailgun') {
-                $this->sendViaMailgun();
+            if ($senderType === 'pmta') {
+                $this->sendViaPmta($senderConfig);
+            } elseif ($senderType === 'mailgun') {
+                $this->sendViaMailgun($senderConfig);
             } else {
-                $this->sendViaSmtp();
+                $this->sendViaSmtp($senderConfig);
             }
         } catch (Exception $e) {
             $this->emailLog->update([
@@ -60,40 +69,75 @@ class SendQueuedEmail implements ShouldQueue
         }
     }
 
-    protected function sendViaSmtp(): void
+    protected function sendViaPmta(?array $senderConfig): void
     {
-        $unsubscribeUrl = $this->generateUnsubscribeUrl();
+        if (!$senderConfig) {
+            Log::channel('queue')->error('SendQueuedEmail: PMTA sender config is null', [
+                'email_log_id' => $this->emailLog->id,
+            ]);
+            return;
+        }
 
-        $mailer = config('email-system.smtp.mailer', 'smtp');
+        // Resolve server via domain routing for this recipient
+        $resolvedServer = SenderResolver::resolveServerForRecipient($this->emailLog->recipient);
 
-        Mail::mailer($mailer)->send(new NewsletterMail(
-            $this->emailLog,
-            $unsubscribeUrl
-        ));
+        // Fall back to sender's referenced server if no domain routing configured
+        if ($resolvedServer === null && !empty($senderConfig['pmta_server'])) {
+            $resolvedServer = SenderResolver::pmtaServer($senderConfig['pmta_server']);
+        }
+
+        $serverName = $resolvedServer['name'] ?? null;
+
+        $spooler = new PmtaSpooler($senderConfig, null, $resolvedServer, $serverName);
+        $spooler->writeEml($this->emailLog);
 
         $this->emailLog->update([
-            'status' => 'sent',
+            'status' => 'spooled',
             'error' => null,
         ]);
 
-        AudienceUser::where('email', $this->emailLog->recipient)
-            ->whereNull('sent_at')
-            ->update(['sent_at' => now()]);
-
-        Log::channel('queue')->info('Email sent via SMTP to: ' . $this->emailLog->recipient);
+        Log::channel('queue')->info('SendQueuedEmail: spooled via PMTA for: ' . $this->emailLog->recipient, [
+            'server' => $serverName,
+        ]);
     }
 
-    protected function sendViaMailgun(): void
+    protected function sendViaSmtp(?array $senderConfig = null): void
     {
-        DB::transaction(function () {
+        DB::transaction(function () use ($senderConfig) {
+            $unsubscribeUrl = $this->generateUnsubscribeUrl();
+
+            $mailer = $senderConfig['smtp_mailer'] ?? config('email-system.smtp.mailer', 'smtp');
+
+            Mail::mailer($mailer)->send(new NewsletterMail(
+                $this->emailLog,
+                $unsubscribeUrl,
+                $senderConfig
+            ));
+
+            $this->emailLog->update([
+                'status' => 'sent',
+                'error' => null,
+            ]);
+
+            AudienceUser::where('email', $this->emailLog->recipient)
+                ->whereNull('sent_at')
+                ->update(['sent_at' => now()]);
+
+            Log::channel('queue')->info('Email sent via SMTP to: ' . $this->emailLog->recipient);
+        });
+    }
+
+    protected function sendViaMailgun(?array $senderConfig = null): void
+    {
+        DB::transaction(function () use ($senderConfig) {
             $unsubscribeUrl = $this->generateUnsubscribeUrl();
 
             $mgClient = Mailgun::create(
-                config('email-system.mailgun.secret'),
-                config('email-system.mailgun.endpoint', 'https://api.eu.mailgun.net')
+                $senderConfig['mailgun_secret'] ?? config('email-system.mailgun.secret'),
+                $senderConfig['mailgun_endpoint'] ?? config('email-system.mailgun.endpoint', 'https://api.eu.mailgun.net')
             );
 
-            $domain = config('email-system.mailgun.domain');
+            $domain = $senderConfig['mailgun_domain'] ?? config('email-system.mailgun.domain');
 
             $htmlContent = view('email-system::newsletter', [
                 'emailLog' => $this->emailLog,
@@ -102,9 +146,9 @@ class SendQueuedEmail implements ShouldQueue
                 'unsubscribeUrl' => $unsubscribeUrl,
             ])->render();
 
-            $fromAddress = config('email-system.from.address');
-            $fromName = config('email-system.from.name');
-            $replyTo = config('email-system.reply_to', $fromAddress);
+            $fromAddress = $senderConfig['from_address'] ?? config('email-system.from.address');
+            $fromName = $senderConfig['from_name'] ?? config('email-system.from.name');
+            $replyTo = $senderConfig['reply_to'] ?? config('email-system.reply_to', $fromAddress);
 
             $response = $mgClient->messages()->send($domain, [
                 'from' => "{$fromName} <{$fromAddress}>",

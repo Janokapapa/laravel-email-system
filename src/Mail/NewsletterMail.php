@@ -16,14 +16,15 @@ class NewsletterMail extends Mailable
 
     public function __construct(
         public EmailLog $emailLog,
-        public ?string $unsubscribeUrl = null
+        public ?string $unsubscribeUrl = null,
+        public ?array $senderConfig = null
     ) {}
 
     public function envelope(): Envelope
     {
-        $fromAddress = config('email-system.from.address');
-        $fromName = config('email-system.from.name');
-        $replyTo = config('email-system.reply_to', $fromAddress);
+        $fromAddress = $this->senderConfig['from_address'] ?? config('email-system.from.address');
+        $fromName = $this->senderConfig['from_name'] ?? config('email-system.from.name');
+        $replyTo = $this->senderConfig['reply_to'] ?? config('email-system.reply_to', $fromAddress);
 
         return new Envelope(
             from: new Address($fromAddress, $fromName),

@@ -11,6 +11,9 @@ use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\FileUpload;
+use Filament\Forms\Components\Select;
+use Filament\Schemas\Components\Utilities\Get;
+use Filament\Schemas\Components\Utilities\Set;
 use Filament\Tables\Table;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Columns\IconColumn;
@@ -27,6 +30,8 @@ use function JanDev\EmailSystem\resolve_callback;
 
 class AudienceUsersRelationManager extends RelationManager
 {
+    /** @var array<int, string> CSV column headers detected from uploaded file */
+    public array $csvColumnOptions = [];
     protected static string $relationship = 'audienceUsers';
 
     protected static ?string $recordTitleAttribute = 'name';
@@ -189,7 +194,7 @@ class AudienceUsersRelationManager extends RelationManager
 
                 // Add all subscribed users - uses config callback
                 Action::make('addAllSubscribedToGroup')
-                    ->label(__('audience_groups.add_all_subscribed_to_group'))
+                    ->label(__('Add All Subscribed'))
                     ->visible(fn () => resolve_callback(config('email-system.add_subscribed_users_callback')) !== null)
                     ->action(function () {
                         $groupId = $this->getOwnerRecord()->id;
@@ -221,26 +226,26 @@ class AudienceUsersRelationManager extends RelationManager
                         }
 
                         Notification::make()
-                            ->title(__('audience_groups.success'))
-                            ->body(trans_choice('audience_groups.added_count', $addedCount, ['count' => $addedCount]))
+                            ->title(__('Success'))
+                            ->body($addedCount . ' ' . __('users added'))
                             ->success()
                             ->send();
                     })
-                    ->requiresConfirmation(__('audience_groups.add_confirmation'))
+                    ->requiresConfirmation(__('Are you sure you want to add all subscribed users?'))
                     ->icon('heroicon-o-plus'),
 
                 // Add users by registration date range - uses config callback
                 Action::make('addUsersByDateRange')
-                    ->label(__('audience_groups.add_users_by_date'))
+                    ->label(__('Add Users by Date'))
                     ->visible(fn () => resolve_callback(config('email-system.add_users_by_date_callback')) !== null)
                     ->schema([
                         DatePicker::make('date_from')
-                            ->label(__('audience_groups.date_from'))
+                            ->label(__('Date From'))
                             ->required()
                             ->native(false)
                             ->displayFormat('Y-m-d'),
                         DatePicker::make('date_to')
-                            ->label(__('audience_groups.date_to'))
+                            ->label(__('Date To'))
                             ->required()
                             ->native(false)
                             ->displayFormat('Y-m-d'),
@@ -281,113 +286,22 @@ class AudienceUsersRelationManager extends RelationManager
                         }
 
                         Notification::make()
-                            ->title(__('audience_groups.success'))
-                            ->body(__('audience_groups.added_with_skipped', ['added' => $addedCount, 'skipped' => $skippedCount]))
+                            ->title(__('Success'))
+                            ->body(__('Added: :added, Skipped: :skipped', ['added' => $addedCount, 'skipped' => $skippedCount]))
                             ->success()
                             ->send();
                     })
-                    ->requiresConfirmation(__('audience_groups.add_by_date_confirmation'))
+                    ->requiresConfirmation(__('Are you sure you want to add users in this date range?'))
                     ->icon('heroicon-o-calendar-days'),
 
-                // Upload CSV action
+                // Upload CSV with column mapping
                 Action::make('uploadCsv')
-                    ->label(__('audience_groups.upload_csv'))
-                    ->schema([
-                        FileUpload::make('csv_file')
-                            ->label(__('audience_groups.select_csv_file'))
-                            ->acceptedFileTypes(['text/csv', 'text/plain', '.csv'])
-                            ->disk('temp')
-                            ->directory('')
-                            ->required(),
-                    ])
+                    ->label(__('Upload CSV'))
+                    ->schema(fn (): array => $this->buildCsvUploadForm())
                     ->action(function (array $data) {
-                        $groupId = $this->getOwnerRecord()->id;
-                        $addedCount = 0;
-
-                        $csvPath = Storage::disk('temp')->path($data['csv_file']);
-
-                        if (!Storage::disk('temp')->exists($data['csv_file'])) {
-                            Notification::make()
-                                ->title(__('audience_groups.csv_invalid'))
-                                ->body(__('audience_groups.file_missing'))
-                                ->warning()
-                                ->send();
-                            return;
-                        }
-
-                        $csvData = array_map(function ($line) {
-                            return str_getcsv($line, ';');
-                        }, file($csvPath));
-                        Storage::disk('temp')->delete($data['csv_file']);
-
-                        $header = array_map('trim', $csvData[0]);
-
-                        if (!CsvHelper::isValidHeader($header)) {
-                            Notification::make()
-                                ->title(__('audience_groups.csv_invalid'))
-                                ->body(__('audience_groups.invalid_csv_format'))
-                                ->warning()
-                                ->send();
-                            return;
-                        }
-                        unset($csvData[0]);
-
-                        $typeErrors = [];
-
-                        foreach ($csvData as $row) {
-                            $parsed = CsvHelper::parseRow($header, $row);
-
-                            if (!empty($parsed['errors'])) {
-                                $typeErrors = array_merge($typeErrors, $parsed['errors']);
-                            }
-
-                            $validator = Validator::make(
-                                ['name' => $parsed['name'], 'email' => $parsed['email']],
-                                ['name' => 'required|string', 'email' => 'required|email']
-                            );
-
-                            if ($validator->fails()) {
-                                continue;
-                            }
-
-                            $isInactiveInOtherGroups = AudienceUser::where('email', $parsed['email'])
-                                ->where('is_active', false)
-                                ->where('email_audience_group_id', '<>', $groupId)
-                                ->exists();
-
-                            if ($isInactiveInOtherGroups) {
-                                continue;
-                            }
-
-                            $exists = AudienceUser::where('email', $parsed['email'])->exists();
-
-                            if (!$exists) {
-                                AudienceUser::create([
-                                    'name' => $parsed['name'],
-                                    'email' => $parsed['email'],
-                                    'is_active' => true,
-                                    'email_audience_group_id' => $groupId,
-                                    'custom_fields' => $parsed['custom_fields'],
-                                ]);
-                                $addedCount++;
-                            }
-                        }
-
-                        Notification::make()
-                            ->title(__('audience_groups.upload_success'))
-                            ->body(trans_choice('audience_groups.added_count', $addedCount, ['count' => $addedCount]))
-                            ->success()
-                            ->send();
-
-                        if (!empty($typeErrors)) {
-                            Notification::make()
-                                ->title(__('CSV Import Warnings'))
-                                ->body(implode("\n", array_slice($typeErrors, 0, 10)))
-                                ->warning()
-                                ->send();
-                        }
+                        $this->processCsvWithMapping($data);
                     })
-                    ->requiresConfirmation(__('audience_groups.upload_confirmation'))
+                    ->modalWidth('lg')
                     ->icon('heroicon-o-arrow-up-tray'),
             ])
             ->recordActions([
@@ -396,5 +310,267 @@ class AudienceUsersRelationManager extends RelationManager
             ->toolbarActions([
                 DeleteBulkAction::make(),
             ]);
+    }
+
+    /**
+     * Build the CSV upload form with FileUpload + mapping selects.
+     * afterStateUpdated reads the TemporaryUploadedFile, detects headers,
+     * stores them in a Livewire property, and auto-fills mapping selects via $set.
+     */
+    private function buildCsvUploadForm(): array
+    {
+        $fields = [
+            FileUpload::make('csv_file')
+                ->label(__('Select CSV File'))
+                ->acceptedFileTypes(['text/csv', 'text/plain', '.csv'])
+                ->disk('local')
+                ->directory('csv-uploads')
+                ->required()
+                ->live()
+                ->afterStateUpdated(function (mixed $state, Set $set) {
+                    $this->csvColumnOptions = [];
+
+                    if (!$state) {
+                        return;
+                    }
+
+                    // Resolve the real file path from TemporaryUploadedFile or string
+                    $fullPath = $this->resolveUploadedFilePath($state);
+                    if (!$fullPath) {
+                        return;
+                    }
+
+                    $detected = CsvHelper::detectHeaders($fullPath);
+                    if (!$detected) {
+                        return;
+                    }
+
+                    // Store options in Livewire property so Select closures can read them
+                    $options = ['' => __('-- Skip --')];
+                    foreach ($detected['headers'] as $i => $header) {
+                        $options[(string) $i] = $header;
+                    }
+                    $this->csvColumnOptions = $options;
+
+                    // Auto-detect and pre-fill mapping selects
+                    $headers = $detected['headers'];
+                    $nameIdx = CsvHelper::autoDetectColumn($headers, ['name', 'név', 'nev', 'username']);
+                    $emailIdx = CsvHelper::autoDetectColumn($headers, ['email', 'e-mail', 'emailcim', 'mail']);
+                    if ($nameIdx !== null) {
+                        $set('map_name', $nameIdx);
+                    }
+                    if ($emailIdx !== null) {
+                        $set('map_email', $emailIdx);
+                    }
+
+                    foreach (AudienceUser::getCustomFieldDefinitions() as $def) {
+                        $slug = $def['slug'] ?? null;
+                        if (!$slug) {
+                            continue;
+                        }
+                        $idx = CsvHelper::autoDetectColumn($headers, [$slug]);
+                        if ($idx !== null) {
+                            $set('map_cf_' . $slug, $idx);
+                        }
+                    }
+                }),
+
+            Select::make('map_name')
+                ->label(__('Name'))
+                ->options(fn (): array => $this->csvColumnOptions)
+                ->visible(fn (): bool => !empty($this->csvColumnOptions))
+                ->required(fn (): bool => !empty($this->csvColumnOptions)),
+
+            Select::make('map_email')
+                ->label(__('Email'))
+                ->options(fn (): array => $this->csvColumnOptions)
+                ->visible(fn (): bool => !empty($this->csvColumnOptions))
+                ->required(fn (): bool => !empty($this->csvColumnOptions)),
+        ];
+
+        foreach (AudienceUser::getCustomFieldDefinitions() as $def) {
+            $slug = $def['slug'] ?? null;
+            if (!$slug) {
+                continue;
+            }
+            $fields[] = Select::make('map_cf_' . $slug)
+                ->label($def['name'] ?? $slug)
+                ->options(fn (): array => $this->csvColumnOptions)
+                ->visible(fn (): bool => !empty($this->csvColumnOptions));
+        }
+
+        return $fields;
+    }
+
+    /**
+     * Resolve the real filesystem path from a FileUpload state value.
+     * Handles TemporaryUploadedFile objects, arrays, and string paths.
+     */
+    private function resolveUploadedFilePath(mixed $state): ?string
+    {
+        // Handle array (Filament wraps state in array internally)
+        if (is_array($state)) {
+            $state = reset($state);
+            if (!$state) {
+                return null;
+            }
+        }
+
+        // TemporaryUploadedFile from Livewire
+        if ($state instanceof \Livewire\Features\SupportFileUploads\TemporaryUploadedFile) {
+            return $state->getRealPath();
+        }
+
+        // String path on the configured disk
+        if (is_string($state)) {
+            $fullPath = Storage::disk('local')->path($state);
+            if (file_exists($fullPath)) {
+                return $fullPath;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Process the uploaded CSV with user-defined column mapping.
+     */
+    private function processCsvWithMapping(array $data): void
+    {
+        $groupId = $this->getOwnerRecord()->id;
+
+        $csvPath = Storage::disk('local')->path($data['csv_file']);
+
+        if (!file_exists($csvPath)) {
+            Notification::make()
+                ->title(__('Error'))
+                ->body(__('The uploaded file could not be found.'))
+                ->danger()
+                ->send();
+            return;
+        }
+
+        $nameIdx = ($data['map_name'] ?? '') !== '' ? (int) $data['map_name'] : null;
+        $emailIdx = ($data['map_email'] ?? '') !== '' ? (int) $data['map_email'] : null;
+
+        if ($nameIdx === null || $emailIdx === null) {
+            Notification::make()
+                ->title(__('Error'))
+                ->body(__('Name and Email column mapping is required.'))
+                ->danger()
+                ->send();
+            return;
+        }
+
+        // Build custom field index map
+        $definitions = AudienceUser::getCustomFieldDefinitions();
+        $defBySlug = collect($definitions)->keyBy('slug')->all();
+        $cfMapping = [];
+
+        foreach ($data as $key => $value) {
+            if (str_starts_with($key, 'map_cf_') && $value !== '' && $value !== null) {
+                $slug = substr($key, 7);
+                if (isset($defBySlug[$slug])) {
+                    $cfMapping[$slug] = [
+                        'index' => (int) $value,
+                        'type' => $defBySlug[$slug]['type'] ?? 'text',
+                    ];
+                }
+            }
+        }
+
+        // Read file and detect separator
+        $lines = file($csvPath);
+        Storage::disk('local')->delete($data['csv_file']);
+
+        if (empty($lines)) {
+            Notification::make()->title(__('Error'))->body(__('The CSV file is empty.'))->warning()->send();
+            return;
+        }
+
+        $headerLine = trim(preg_replace('/^\xEF\xBB\xBF/', '', $lines[0]));
+        $semicolons = substr_count($headerLine, ';');
+        $commas = substr_count($headerLine, ',');
+        $separator = $semicolons >= $commas ? ';' : ',';
+
+        array_shift($lines); // skip header
+
+        $addedCount = 0;
+        $skippedCount = 0;
+        $typeErrors = [];
+
+        foreach ($lines as $line) {
+            $line = trim($line);
+            if ($line === '') {
+                continue;
+            }
+
+            $row = str_getcsv($line, $separator);
+            $name = trim($row[$nameIdx] ?? '');
+            $email = trim($row[$emailIdx] ?? '');
+
+            $validator = Validator::make(
+                ['name' => $name, 'email' => $email],
+                ['name' => 'required|string', 'email' => 'required|email'],
+            );
+
+            if ($validator->fails()) {
+                $skippedCount++;
+                continue;
+            }
+
+            // Parse custom fields
+            $customFields = [];
+            foreach ($cfMapping as $slug => $mapping) {
+                $rawValue = trim($row[$mapping['index']] ?? '');
+                if ($rawValue === '') {
+                    continue;
+                }
+                $parsed = CsvHelper::parseFieldValue($rawValue, $slug, $mapping['type']);
+                if ($parsed['error']) {
+                    $typeErrors[] = $parsed['error'];
+                } else {
+                    $customFields[$slug] = $parsed['value'];
+                }
+            }
+
+            $isInactiveInOtherGroups = AudienceUser::where('email', $email)
+                ->where('is_active', false)
+                ->where('email_audience_group_id', '<>', $groupId)
+                ->exists();
+
+            if ($isInactiveInOtherGroups) {
+                $skippedCount++;
+                continue;
+            }
+
+            if (AudienceUser::where('email', $email)->exists()) {
+                $skippedCount++;
+                continue;
+            }
+
+            AudienceUser::create([
+                'name' => $name,
+                'email' => $email,
+                'is_active' => true,
+                'email_audience_group_id' => $groupId,
+                'custom_fields' => $customFields,
+            ]);
+            $addedCount++;
+        }
+
+        Notification::make()
+            ->title(__('CSV Upload Complete'))
+            ->body(__('Added: :added, Skipped: :skipped', ['added' => $addedCount, 'skipped' => $skippedCount]))
+            ->success()
+            ->send();
+
+        if (!empty($typeErrors)) {
+            Notification::make()
+                ->title(__('CSV Import Warnings'))
+                ->body(implode("\n", array_slice($typeErrors, 0, 10)))
+                ->warning()
+                ->send();
+        }
     }
 }

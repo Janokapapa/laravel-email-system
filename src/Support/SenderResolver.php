@@ -1,0 +1,187 @@
+<?php
+
+namespace JanDev\EmailSystem\Support;
+
+use Illuminate\Support\Facades\Cache;
+use JanDev\UserManagement\Models\Setting;
+use JanDev\EmailSystem\Support\ProviderResolver;
+
+class SenderResolver
+{
+    protected const CACHE_KEY = 'email_sender_definitions';
+    protected const CACHE_TTL = 60;
+
+    protected const PMTA_SERVERS_CACHE_KEY = 'email_pmta_servers_cache';
+    protected const DOMAIN_ROUTING_CACHE_KEY = 'email_domain_routing_cache';
+
+    /**
+     * Return all sender definitions (cached).
+     */
+    public static function all(): array
+    {
+        return Cache::remember(static::CACHE_KEY, static::CACHE_TTL, function () {
+            $value = Setting::get('email', 'senders', []);
+            return is_array($value) ? $value : [];
+        });
+    }
+
+    /**
+     * Return a sender config by name, or null if not found.
+     */
+    public static function get(string $name): ?array
+    {
+        foreach (static::all() as $sender) {
+            if (isset($sender['name']) && $sender['name'] === $name) {
+                return $sender;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Return the default sender (is_default = true), or null.
+     */
+    public static function getDefault(): ?array
+    {
+        foreach (static::all() as $sender) {
+            if (!empty($sender['is_default'])) {
+                return $sender;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Return options array for Filament Select: ['name' => 'Name (type)'].
+     */
+    public static function options(): array
+    {
+        $options = [];
+        foreach (static::all() as $sender) {
+            if (isset($sender['name'])) {
+                $label = ($sender['from_name'] ?? $sender['name']) . ' (' . ($sender['type'] ?? '?') . ')';
+                $options[$sender['name']] = $label;
+            }
+        }
+        return $options;
+    }
+
+    /**
+     * Forget the cache. Called from Setting model after email.senders is saved.
+     */
+    public static function forgetCache(): void
+    {
+        Cache::forget(static::CACHE_KEY);
+    }
+
+    /**
+     * Return all PMTA server definitions (cached).
+     * Each server: { name, host, user, port, ssh_key, tmp_path, pickup_path, virtual_mta, bounce_domain, batch_size }
+     */
+    public static function pmtaServers(): array
+    {
+        return Cache::remember(static::PMTA_SERVERS_CACHE_KEY, static::CACHE_TTL, function () {
+            $value = Setting::get('email', 'pmta_servers', []);
+            return is_array($value) ? $value : [];
+        });
+    }
+
+    /**
+     * Return a PMTA server config by name, or null if not found.
+     */
+    public static function pmtaServer(string $name): ?array
+    {
+        foreach (static::pmtaServers() as $server) {
+            if (isset($server['name']) && $server['name'] === $name) {
+                return $server;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Return domain routing rules as a flat map: ['microsoft' => 'caspmta3', 'yahoo' => 'caspmta1', ...]
+     */
+    public static function domainRouting(): array
+    {
+        $rules = Cache::remember(static::DOMAIN_ROUTING_CACHE_KEY, static::CACHE_TTL, function () {
+            $value = Setting::get('email', 'domain_routing', []);
+            return is_array($value) ? $value : [];
+        });
+
+        $map = [];
+        foreach ($rules as $rule) {
+            if (isset($rule['provider'], $rule['server']) && $rule['provider'] !== '') {
+                $map[$rule['provider']] = $rule['server'];
+            }
+        }
+        return $map;
+    }
+
+    /**
+     * Resolve the PMTA server config for a recipient email address using domain routing rules.
+     * Returns null if no routing is configured or server not found.
+     */
+    public static function resolveServerForRecipient(string $email): ?array
+    {
+        $routing = static::domainRouting();
+
+        if (empty($routing)) {
+            return null;
+        }
+
+        $provider = ProviderResolver::resolve($email);
+        $serverName = $routing[$provider] ?? $routing['default'] ?? null;
+
+        if (empty($serverName)) {
+            return null;
+        }
+
+        return static::pmtaServer($serverName);
+    }
+
+    /**
+     * Resolve the full PMTA config for a sender, merging server config with sender fields.
+     * Priority for virtual_mta: sender's pmta_virtual_mta (if set) > server's virtual_mta.
+     * Backward compat: if sender has inline pmta_host, use inline fields as fallback.
+     */
+    public static function resolveFullPmtaConfig(array $sender): array
+    {
+        $serverConfig = [];
+
+        // Resolve server by reference name first
+        if (!empty($sender['pmta_server'])) {
+            $serverConfig = static::pmtaServer($sender['pmta_server']) ?? [];
+        }
+
+        // Fallback: sender has inline pmta_host (backward compat)
+        if (empty($serverConfig) && !empty($sender['pmta_host'])) {
+            $serverConfig = [
+                'name'         => null,
+                'host'         => $sender['pmta_host'],
+                'user'         => $sender['pmta_user'] ?? 'root',
+                'port'         => $sender['pmta_port'] ?? 22,
+                'ssh_key'      => $sender['pmta_ssh_key'] ?? '',
+                'tmp_path'     => $sender['pmta_tmp_path'] ?? '/tmp-pickup',
+                'pickup_path'  => $sender['pmta_pickup_path'] ?? '/pickup',
+                'virtual_mta'  => $sender['pmta_virtual_mta'] ?? 'all',
+                'bounce_domain' => '',
+                'batch_size'   => null,
+            ];
+        }
+
+        // Merge: sender fields take priority for identity fields
+        $config = array_merge($serverConfig, [
+            'from_address' => $sender['from_address'] ?? '',
+            'from_name'    => $sender['from_name'] ?? '',
+            'reply_to'     => $sender['reply_to'] ?? '',
+        ]);
+
+        // Sender's pmta_virtual_mta overrides server's virtual_mta if non-empty
+        if (!empty($sender['pmta_virtual_mta'])) {
+            $config['virtual_mta'] = $sender['pmta_virtual_mta'];
+        }
+
+        return $config;
+    }
+}

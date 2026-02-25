@@ -53,12 +53,20 @@ class EmailLogResource extends Resource
                     ->label(__('Subject'))
                     ->limit(40)
                     ->sortable(),
+                TextColumn::make('sender_name')
+                    ->label(__('Sender'))
+                    ->badge()
+                    ->color('primary')
+                    ->sortable()
+                    ->searchable()
+                    ->placeholder(__('—')),
                 TextColumn::make('status')
                     ->label(__('Status'))
                     ->badge()
                     ->color(fn (string $state): string => match ($state) {
                         'sent' => 'success',
                         'queued' => 'warning',
+                        'spooled' => 'info',
                         'failed' => 'danger',
                         default => 'gray',
                     })
@@ -77,9 +85,17 @@ class EmailLogResource extends Resource
                     ->label(__('Status'))
                     ->options([
                         'queued' => __('Queued'),
+                        'spooled' => __('Spooled (PMTA)'),
                         'sent' => __('Sent'),
                         'failed' => __('Failed'),
                     ]),
+                SelectFilter::make('sender_name')
+                    ->label(__('Sender'))
+                    ->options(fn () => EmailLog::query()
+                        ->whereNotNull('sender_name')
+                        ->distinct()
+                        ->pluck('sender_name', 'sender_name')
+                        ->toArray()),
                 SelectFilter::make('email_template_id')
                     ->label(__('Template'))
                     ->relationship('emailTemplate', 'name'),

@@ -19,6 +19,7 @@ class EmailLog extends Model
         'subject',
         'message',
         'sender',
+        'sender_name',
         'cc',
         'bcc',
         'status',
@@ -60,6 +61,7 @@ class EmailLog extends Model
         return match($this->status) {
             'sent' => 'Sent',
             'queued' => 'Queued',
+            'spooled' => 'Spooled',
             'failed' => 'Failed',
             default => ucfirst($this->status ?? 'Unknown'),
         };

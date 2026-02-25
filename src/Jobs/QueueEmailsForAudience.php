@@ -6,6 +6,7 @@ use JanDev\EmailSystem\Models\AudienceUser;
 use JanDev\EmailSystem\Models\EmailAudienceGroup;
 use JanDev\EmailSystem\Models\EmailLog;
 use JanDev\EmailSystem\Models\EmailTemplate;
+use JanDev\EmailSystem\Support\SenderResolver;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -26,18 +27,21 @@ class QueueEmailsForAudience implements ShouldQueue
     protected int $audienceGroupId;
     protected bool $skipYahoo;
     protected ?int $userId;
+    protected ?string $senderName;
     protected ?\Closure $onComplete = null;
 
     public function __construct(
         int $templateId,
         int $audienceGroupId,
         bool $skipYahoo = false,
-        ?int $userId = null
+        ?int $userId = null,
+        ?string $senderName = null
     ) {
         $this->templateId = $templateId;
         $this->audienceGroupId = $audienceGroupId;
         $this->skipYahoo = $skipYahoo;
         $this->userId = $userId;
+        $this->senderName = $senderName;
     }
 
     public function handle(): void
@@ -69,10 +73,10 @@ class QueueEmailsForAudience implements ShouldQueue
 
         Log::channel('queue')->info("QueueEmailsForAudience: Blocked emails count: " . count($blockedEmails));
 
-        // Get emails already sent/queued for this template (prevent duplicate sends)
+        // Get emails already sent/queued/spooled for this template (prevent duplicate sends)
         $alreadySentEmails = array_flip(
             EmailLog::where('email_template_id', $template->id)
-                ->whereIn('status', ['sent', 'queued'])
+                ->whereIn('status', ['sent', 'queued', 'spooled'])
                 ->pluck('recipient')
                 ->toArray()
         );
@@ -81,6 +85,16 @@ class QueueEmailsForAudience implements ShouldQueue
 
         // Get sender from config
         $sender = config('email-system.from.address');
+
+        // Resolve initial status based on sender type
+        // PMTA emails go directly to 'spooled' to bypass SendQueuedEmails
+        $initialStatus = 'queued';
+        if ($this->senderName) {
+            $senderConfig = SenderResolver::get($this->senderName);
+            if ($senderConfig && ($senderConfig['type'] ?? '') === 'pmta') {
+                $initialStatus = 'spooled';
+            }
+        }
 
         // Prepare batch insert data
         $batchData = [];
@@ -96,7 +110,8 @@ class QueueEmailsForAudience implements ShouldQueue
             ->where('bounced', false)
             ->chunkById(1000, function ($users) use (
                 $template, $audienceGroup, $sender, $blockedEmails, $alreadySentEmails,
-                &$batchData, &$queuedCount, &$skippedCount, &$yahooSkippedCount, &$alreadySentSkippedCount, $batchSize
+                &$batchData, &$queuedCount, &$skippedCount, &$yahooSkippedCount, &$alreadySentSkippedCount, $batchSize,
+                $initialStatus
             ) {
                 foreach ($users as $user) {
                     // Skip if already sent/queued for this template
@@ -125,7 +140,8 @@ class QueueEmailsForAudience implements ShouldQueue
                         'subject' => $user->resolvePlaceholders($template->subject),
                         'message' => $user->resolvePlaceholders($template->body),
                         'sender' => $sender,
-                        'status' => 'queued',
+                        'sender_name' => $this->senderName,
+                        'status' => $initialStatus,
                         'created_at' => now(),
                         'updated_at' => now(),
                     ];

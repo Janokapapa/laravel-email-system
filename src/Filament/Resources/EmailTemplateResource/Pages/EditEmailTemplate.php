@@ -7,6 +7,7 @@ use JanDev\EmailSystem\Jobs\QueueEmailsForAudience;
 use JanDev\EmailSystem\Models\AudienceUser;
 use JanDev\EmailSystem\Models\EmailAudienceGroup;
 use JanDev\EmailSystem\Models\EmailLog;
+use JanDev\EmailSystem\Support\SenderResolver;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Checkbox;
@@ -26,6 +27,7 @@ class EditEmailTemplate extends EditRecord
     public ?bool $pendingSkipYahoo = null;
     public ?int $pendingNewCount = null;
     public ?int $pendingAlreadySentCount = null;
+    public ?string $pendingSenderName = null;
 
     protected function getHeaderActions(): array
     {
@@ -49,14 +51,30 @@ class EditEmailTemplate extends EditRecord
                     ->email()
                     ->required()
                     ->default(auth()->user()->email),
+                Select::make('senderName')
+                    ->label(__('Sender'))
+                    ->options(fn () => SenderResolver::options())
+                    ->default(fn () => SenderResolver::getDefault()['name'] ?? null)
+                    ->placeholder(__('Default (from config)'))
+                    ->searchable(),
             ])
             ->action(function (array $data) {
+                $senderName = $data['senderName'] ?? null;
+                $senderConfig = $senderName ? SenderResolver::get($senderName) : null;
+                $senderAddress = $senderConfig['from_address'] ?? config('email-system.from.address');
+
+                // PMTA emails go directly to 'spooled' to be processed by PmtaSync
+                $initialStatus = ($senderConfig && ($senderConfig['type'] ?? '') === 'pmta')
+                    ? 'spooled'
+                    : 'queued';
+
                 EmailLog::create([
                     'recipient' => $data['test_email'],
                     'subject' => '[TEST] ' . $this->record->subject,
                     'message' => $this->record->body,
-                    'sender' => config('email-system.from.address'),
-                    'status' => 'queued',
+                    'sender' => $senderAddress,
+                    'sender_name' => $senderName,
+                    'status' => $initialStatus,
                 ]);
 
                 Notification::make()
@@ -71,17 +89,17 @@ class EditEmailTemplate extends EditRecord
     {
         // Get groups that already received this template
         $sentGroupIds = EmailLog::where('email_template_id', $this->record->id)
-            ->whereIn('status', ['sent', 'queued'])
+            ->whereIn('status', ['sent', 'queued', 'spooled'])
             ->distinct()
             ->pluck('email_audience_group_id')
             ->filter()
             ->toArray();
 
         return Action::make('sendEmail')
-            ->label(__('email_template.send_mail_to_audience'))
+            ->label(__('Send Mail to Audience'))
             ->form([
                 Select::make('audienceGroupId')
-                    ->label(__('email_template.select_audience_group'))
+                    ->label(__('Select Audience Group'))
                     ->options(function () use ($sentGroupIds) {
                         return EmailAudienceGroup::orderBy('name')
                             ->get()
@@ -90,7 +108,7 @@ class EditEmailTemplate extends EditRecord
                                 if (in_array($group->id, $sentGroupIds)) {
                                     $count = EmailLog::where('email_template_id', $this->record->id)
                                         ->where('email_audience_group_id', $group->id)
-                                        ->whereIn('status', ['sent', 'queued'])
+                                        ->whereIn('status', ['sent', 'queued', 'spooled'])
                                         ->count();
                                     $label = "✓ {$group->name} ({$count} " . __('sent') . ")";
                                 }
@@ -101,17 +119,34 @@ class EditEmailTemplate extends EditRecord
                     ->required()
                     ->searchable(),
                 Checkbox::make('skipYahoo')
-                    ->label(__('email_template.skip_yahoo'))
-                    ->helperText(__('email_template.skip_yahoo_help'))
+                    ->label(__('Skip Yahoo/Ymail'))
+                    ->helperText(__('Skip recipients with @yahoo or @ymail addresses'))
                     ->default(true),
+                Select::make('senderName')
+                    ->label(__('Sender'))
+                    ->options(fn () => SenderResolver::options())
+                    ->default(fn () => SenderResolver::getDefault()['name'] ?? null)
+                    ->placeholder(__('Default (from config)'))
+                    ->searchable(),
             ])
             ->action(function (array $data) {
                 $audienceGroup = EmailAudienceGroup::findOrFail($data['audienceGroupId']);
                 $skipYahoo = $data['skipYahoo'] ?? false;
+                $senderName = $data['senderName'] ?? null;
+
+                // Validate sender still exists
+                if ($senderName && !SenderResolver::get($senderName)) {
+                    Notification::make()
+                        ->title(__('Sender not found'))
+                        ->body(__('The selected sender ":name" no longer exists. Please select a different sender.', ['name' => $senderName]))
+                        ->danger()
+                        ->send();
+                    return;
+                }
 
                 // Use subqueries to avoid "too many placeholders" with large datasets
                 $alreadySentQuery = EmailLog::where('email_template_id', $this->record->id)
-                    ->whereIn('status', ['sent', 'queued']);
+                    ->whereIn('status', ['sent', 'queued', 'spooled']);
 
                 $alreadySentCount = $alreadySentQuery->count();
 
@@ -161,6 +196,7 @@ class EditEmailTemplate extends EditRecord
                 $this->pendingSkipYahoo = $skipYahoo;
                 $this->pendingNewCount = $newCount;
                 $this->pendingAlreadySentCount = $alreadySentCount;
+                $this->pendingSenderName = $senderName;
 
                 $skipInfo = $alreadySentCount > 0
                     ? ' (' . number_format($alreadySentCount) . ' ' . __('already sent, skipped') . ')'
@@ -207,7 +243,8 @@ class EditEmailTemplate extends EditRecord
                     $this->record->id,
                     $this->pendingAudienceGroupId,
                     $this->pendingSkipYahoo ?? false,
-                    auth()->id()
+                    auth()->id(),
+                    $this->pendingSenderName
                 );
 
                 Notification::make()
@@ -223,6 +260,7 @@ class EditEmailTemplate extends EditRecord
                 $this->pendingSkipYahoo = null;
                 $this->pendingNewCount = null;
                 $this->pendingAlreadySentCount = null;
+                $this->pendingSenderName = null;
             });
     }
 }
