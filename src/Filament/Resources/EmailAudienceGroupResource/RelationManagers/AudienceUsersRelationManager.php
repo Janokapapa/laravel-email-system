@@ -3,6 +3,8 @@
 namespace JanDev\EmailSystem\Filament\Resources\EmailAudienceGroupResource\RelationManagers;
 
 use JanDev\EmailSystem\Models\AudienceUser;
+use JanDev\EmailSystem\Support\CustomFieldComponents;
+use JanDev\EmailSystem\Support\CsvHelper;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Schemas\Schema;
 use Filament\Forms\Components\TextInput;
@@ -32,7 +34,7 @@ class AudienceUsersRelationManager extends RelationManager
     public function form(Schema $schema): Schema
     {
         return $schema
-            ->components([
+            ->schema([
                 TextInput::make('name')
                     ->label(__('User Name'))
                     ->required(),
@@ -52,6 +54,8 @@ class AudienceUsersRelationManager extends RelationManager
                 Toggle::make('is_active')
                     ->label(__('Active Status'))
                     ->inline(false),
+
+                ...CustomFieldComponents::formFields(),
             ]);
     }
 
@@ -68,6 +72,8 @@ class AudienceUsersRelationManager extends RelationManager
                     ->boolean()
                     ->trueIcon('heroicon-s-check-circle')
                     ->falseIcon('heroicon-s-x-circle'),
+
+                ...CustomFieldComponents::tableColumns(),
             ])
             ->filters([
                 Filter::make('name')
@@ -104,6 +110,8 @@ class AudienceUsersRelationManager extends RelationManager
                         0 => __('Inactive'),
                     ])
                     ->placeholder(__('All Statuses')),
+
+                ...CustomFieldComponents::tableFilters(),
             ])
             ->headerActions([
                 Action::make('downloadFilteredCsv')
@@ -113,14 +121,11 @@ class AudienceUsersRelationManager extends RelationManager
 
                         return response()->streamDownload(function () use ($filteredQuery) {
                             $handle = fopen('php://output', 'w');
-                            fputcsv($handle, [__('address'), __('tags'), __('created_at')]);
+                            fputcsv($handle, CsvHelper::buildHeader(), ';');
 
+                            $definitions = \JanDev\EmailSystem\Models\AudienceUser::getCustomFieldDefinitions();
                             foreach ($filteredQuery->get() as $user) {
-                                fputcsv($handle, [
-                                    $user->email,
-                                    '',
-                                    $user->created_at,
-                                ]);
+                                fputcsv($handle, CsvHelper::buildRow($user, $definitions), ';');
                             }
 
                             fclose($handle);
@@ -316,9 +321,8 @@ class AudienceUsersRelationManager extends RelationManager
                         Storage::disk('temp')->delete($data['csv_file']);
 
                         $header = array_map('trim', $csvData[0]);
-                        $expectedHeader = ['name', 'email'];
 
-                        if ($header !== $expectedHeader) {
+                        if (!CsvHelper::isValidHeader($header)) {
                             Notification::make()
                                 ->title(__('audience_groups.csv_invalid'))
                                 ->body(__('audience_groups.invalid_csv_format'))
@@ -328,9 +332,17 @@ class AudienceUsersRelationManager extends RelationManager
                         }
                         unset($csvData[0]);
 
+                        $typeErrors = [];
+
                         foreach ($csvData as $row) {
+                            $parsed = CsvHelper::parseRow($header, $row);
+
+                            if (!empty($parsed['errors'])) {
+                                $typeErrors = array_merge($typeErrors, $parsed['errors']);
+                            }
+
                             $validator = Validator::make(
-                                ['name' => $row[0], 'email' => $row[1]],
+                                ['name' => $parsed['name'], 'email' => $parsed['email']],
                                 ['name' => 'required|string', 'email' => 'required|email']
                             );
 
@@ -338,7 +350,7 @@ class AudienceUsersRelationManager extends RelationManager
                                 continue;
                             }
 
-                            $isInactiveInOtherGroups = AudienceUser::where('email', $row[1])
+                            $isInactiveInOtherGroups = AudienceUser::where('email', $parsed['email'])
                                 ->where('is_active', false)
                                 ->where('email_audience_group_id', '<>', $groupId)
                                 ->exists();
@@ -347,14 +359,15 @@ class AudienceUsersRelationManager extends RelationManager
                                 continue;
                             }
 
-                            $exists = AudienceUser::where('email', $row[1])->exists();
+                            $exists = AudienceUser::where('email', $parsed['email'])->exists();
 
                             if (!$exists) {
                                 AudienceUser::create([
-                                    'name' => $row[0],
-                                    'email' => $row[1],
+                                    'name' => $parsed['name'],
+                                    'email' => $parsed['email'],
                                     'is_active' => true,
                                     'email_audience_group_id' => $groupId,
+                                    'custom_fields' => $parsed['custom_fields'],
                                 ]);
                                 $addedCount++;
                             }
@@ -365,6 +378,14 @@ class AudienceUsersRelationManager extends RelationManager
                             ->body(trans_choice('audience_groups.added_count', $addedCount, ['count' => $addedCount]))
                             ->success()
                             ->send();
+
+                        if (!empty($typeErrors)) {
+                            Notification::make()
+                                ->title(__('CSV Import Warnings'))
+                                ->body(implode("\n", array_slice($typeErrors, 0, 10)))
+                                ->warning()
+                                ->send();
+                        }
                     })
                     ->requiresConfirmation(__('audience_groups.upload_confirmation'))
                     ->icon('heroicon-o-arrow-up-tray'),

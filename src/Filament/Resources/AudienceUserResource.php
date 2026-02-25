@@ -4,6 +4,7 @@ namespace JanDev\EmailSystem\Filament\Resources;
 
 use JanDev\EmailSystem\Filament\Resources\AudienceUserResource\Pages;
 use JanDev\EmailSystem\Models\AudienceUser;
+use JanDev\EmailSystem\Support\CustomFieldComponents;
 use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Forms\Components\TextInput;
@@ -72,6 +73,8 @@ class AudienceUserResource extends Resource
                 Toggle::make('is_active')
                     ->label(__('Active'))
                     ->default(true),
+
+                ...CustomFieldComponents::formFields(),
             ]);
     }
 
@@ -89,6 +92,8 @@ class AudienceUserResource extends Resource
                     ->boolean()
                     ->trueIcon('heroicon-s-check-circle')
                     ->falseIcon('heroicon-s-x-circle'),
+
+                ...CustomFieldComponents::tableColumns(),
             ])
             ->filters([
                 Filter::make('name')
@@ -125,6 +130,8 @@ class AudienceUserResource extends Resource
                         0 => __('Inactive'),
                     ])
                     ->placeholder(__('All Statuses')),
+
+                ...CustomFieldComponents::tableFilters(),
             ])
             ->recordActions([
                 EditAction::make(),

@@ -5,10 +5,13 @@ namespace JanDev\EmailSystem\Filament\Resources;
 use JanDev\EmailSystem\Filament\Resources\EmailTemplateResource\Pages;
 use JanDev\EmailSystem\Models\EmailTemplate;
 use JanDev\EmailSystem\Models\EmailLog;
+use JanDev\EmailSystem\Models\AudienceUser;
 use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Field;
+use Illuminate\Support\HtmlString;
 use Filament\Tables\Table;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Columns\ViewColumn;
@@ -52,6 +55,8 @@ class EmailTemplateResource extends Resource
             ->dehydrated(true)
             ->dehydrateStateUsing(fn ($state) => $state);
 
+        $placeholderHint = static::buildPlaceholderHint();
+
         return $schema->columns(1)->components([
             TextInput::make('name')
                 ->required()
@@ -61,8 +66,32 @@ class EmailTemplateResource extends Resource
                 ->required()
                 ->label(__('Subject')),
 
+            $placeholderHint,
+
             $tiny('body', __('Email Body'), 700, 620),
         ]);
+    }
+
+    protected static function buildPlaceholderHint(): Placeholder
+    {
+        $tags = ['{{name}}', '{{email}}'];
+
+        if (class_exists(\JanDev\UserManagement\Models\Setting::class)) {
+            $definitions = AudienceUser::getCustomFieldDefinitions();
+            foreach ($definitions as $field) {
+                $slug = $field['slug'] ?? null;
+                if ($slug && preg_match('/^[a-zA-Z0-9_]+$/', $slug)) {
+                    $tags[] = '{{' . $slug . '}}';
+                }
+            }
+        }
+
+        $tagList = implode(', ', array_map(fn ($t) => "<code>{$t}</code>", $tags));
+
+        return Placeholder::make('placeholder_hint')
+            ->label(__('Available Placeholders'))
+            ->content(new HtmlString($tagList))
+            ->columnSpanFull();
     }
 
     public static function table(Table $table): Table

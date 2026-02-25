@@ -48,6 +48,7 @@ class EmailSystemServiceProvider extends ServiceProvider
                 Console\Commands\FixEmailStatusFromMailgun::class,
                 Console\Commands\SyncMailgunSuppressions::class,
                 Console\Commands\CleanupMailgunEvents::class,
+                Console\Commands\SyncCustomFieldIndexes::class,
             ]);
         }
     }
