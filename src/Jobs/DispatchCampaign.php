@@ -50,17 +50,18 @@ class DispatchCampaign implements ShouldQueue
 
             // Dispatch synchronously to ensure sequential processing
             QueueEmailsForAudience::dispatchSync(
-                templateId:         $campaign->email_template_id,
-                audienceGroupId:    (int) $groupId,
-                skipProviders:      $campaign->skip_providers ?? [],
-                userId:             null,
-                senderName:         $campaign->sender_name,
-                campaignId:         $campaign->id,
-                campaignSubject:    $campaign->subject,
-                campaignBody:       $campaign->body,
-                senderAddress:      $campaign->sender_address,
-                campaignVariations: $campaign->variations ?? [],
-                contentType:        $campaign->content_type ?? 'html',
+                templateId:          $campaign->email_template_id,
+                audienceGroupId:     (int) $groupId,
+                skipProviders:       $campaign->skip_providers ?? [],
+                userId:              null,
+                senderName:          $campaign->sender_name,
+                campaignId:          $campaign->id,
+                campaignSubject:     $campaign->subject,
+                campaignBody:        $campaign->body,
+                senderAddress:       $campaign->sender_address,
+                campaignVariations:  $campaign->variations ?? [],
+                contentType:         $campaign->content_type ?? 'html',
+                senderDisplayName:   $campaign->sender_display_name,
             );
         }
 

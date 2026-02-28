@@ -419,14 +419,15 @@ class CreateCampaign extends CreateRecord
         $senderAddress = $state['sender_address'] ?? ($senderConfig['from_address'] ?? config('email-system.from.address'));
 
         $emailLog = EmailLog::create([
-            'campaign_id'  => $this->draftCampaignId,
-            'recipient'    => $testEmail,
-            'subject'      => '[TEST] ' . ($state['subject'] ?? 'Campaign Preview'),
-            'message'      => $state['body'] ?? '',
-            'sender'       => $senderAddress,
-            'sender_name'  => $senderName,
-            'content_type' => $state['content_type'] ?? 'html',
-            'status'       => 'queued',
+            'campaign_id'          => $this->draftCampaignId,
+            'recipient'            => $testEmail,
+            'subject'              => '[TEST] ' . ($state['subject'] ?? 'Campaign Preview'),
+            'message'              => $state['body'] ?? '',
+            'sender'               => $senderAddress,
+            'sender_name'          => $senderName,
+            'sender_display_name'  => $state['sender_display_name'] ?? ($senderConfig['from_name'] ?? null),
+            'content_type'         => $state['content_type'] ?? 'html',
+            'status'               => 'queued',
         ]);
 
         try {

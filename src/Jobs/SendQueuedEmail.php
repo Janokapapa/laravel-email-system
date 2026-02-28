@@ -49,6 +49,16 @@ class SendQueuedEmail implements ShouldQueue
             ? SenderResolver::get($this->emailLog->sender_name)
             : null;
 
+        // Override sender config with campaign-specific values from EmailLog
+        if ($senderConfig) {
+            if ($this->emailLog->sender) {
+                $senderConfig['from_address'] = $this->emailLog->sender;
+            }
+            if ($this->emailLog->sender_display_name) {
+                $senderConfig['from_name'] = $this->emailLog->sender_display_name;
+            }
+        }
+
         $senderType = $senderConfig['type'] ?? config('email-system.driver', 'smtp');
 
         try {
