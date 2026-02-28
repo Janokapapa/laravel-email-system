@@ -327,7 +327,13 @@ class EditCampaign extends EditRecord
                     TextInput::make('test_email')
                         ->label(__('Test Email Address'))
                         ->email()
-                        ->default(fn () => auth()->user()->email ?? ''),
+                        ->default(fn () => auth()->user()->email ?? '')
+                        ->suffixAction(
+                            \Filament\Forms\Components\Actions\Action::make('send_test')
+                                ->label(__('Send Test'))
+                                ->icon('heroicon-o-paper-airplane')
+                                ->action(fn () => $this->sendTestEmail())
+                        ),
                 ]),
 
             // ─── Step 5: Confirm & Send ──────────────────────────────────────
@@ -389,5 +395,61 @@ class EditCampaign extends EditRecord
     protected function getRedirectUrl(): string
     {
         return $this->getResource()::getUrl('index');
+    }
+
+    public function sendTestEmail(): void
+    {
+        $state = $this->form->getState();
+
+        $testEmail = $state['test_email'] ?? null;
+        if (!$testEmail) {
+            Notification::make()
+                ->title(__('Test email address required'))
+                ->danger()
+                ->send();
+            return;
+        }
+
+        $senderName    = $state['sender_name'] ?? null;
+        $senderConfig  = $senderName ? SenderResolver::get($senderName) : null;
+        $senderAddress = $state['sender_address'] ?? ($senderConfig['from_address'] ?? config('email-system.from.address'));
+
+        $emailLog = EmailLog::create([
+            'campaign_id'  => $this->record->id,
+            'recipient'    => $testEmail,
+            'subject'      => '[TEST] ' . ($state['subject'] ?? 'Campaign Preview'),
+            'message'      => $state['body'] ?? '',
+            'sender'       => $senderAddress,
+            'sender_name'  => $senderName,
+            'content_type' => $state['content_type'] ?? 'html',
+            'status'       => 'queued',
+        ]);
+
+        try {
+            SendQueuedEmail::dispatchSync($emailLog);
+
+            $emailLog->refresh();
+            $status = $emailLog->status;
+
+            if (in_array($status, ['sent', 'spooled'])) {
+                Notification::make()
+                    ->title(__('Test email sent'))
+                    ->body(__('Successfully sent to :email', ['email' => $testEmail]))
+                    ->success()
+                    ->send();
+            } else {
+                Notification::make()
+                    ->title(__('Test email status: :status', ['status' => $status]))
+                    ->body($emailLog->error ?: __('Sent to :email', ['email' => $testEmail]))
+                    ->warning()
+                    ->send();
+            }
+        } catch (\Throwable $e) {
+            Notification::make()
+                ->title(__('Test email failed'))
+                ->body($e->getMessage())
+                ->danger()
+                ->send();
+        }
     }
 }
