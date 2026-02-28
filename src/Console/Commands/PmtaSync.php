@@ -7,6 +7,7 @@ use JanDev\EmailSystem\Models\AudienceUser;
 use JanDev\EmailSystem\Support\PmtaSpooler;
 use JanDev\EmailSystem\Support\SenderResolver;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class PmtaSync extends Command
@@ -96,10 +97,13 @@ class PmtaSync extends Command
                 continue; // Already spooled
             }
 
+            // Generate unsubscribe URL for this recipient
+            $unsubscribeUrl = $this->generateUnsubscribeUrl($emailLog);
+
             // Write EML file
             $spooler = new PmtaSpooler($senderConfig, $spoolBase, $resolvedServer, $serverName);
             try {
-                $spooler->writeEml($emailLog);
+                $spooler->writeEml($emailLog, $unsubscribeUrl);
             } catch (\RuntimeException $e) {
                 Log::channel('queue')->error("PmtaSync: failed to write EML for email {$emailLog->id}: " . $e->getMessage());
             }
@@ -456,6 +460,29 @@ class PmtaSync extends Command
     protected function executeCommand(string $cmd, array &$output, int &$exitCode): void
     {
         exec($cmd, $output, $exitCode);
+    }
+
+    protected function generateUnsubscribeUrl(EmailLog $emailLog): string
+    {
+        return DB::transaction(function () use ($emailLog) {
+            $token = bin2hex(random_bytes(16));
+
+            $audienceUsers = AudienceUser::where('email', $emailLog->recipient)
+                ->where('is_active', true)
+                ->lockForUpdate()
+                ->get();
+
+            if ($audienceUsers->isNotEmpty()) {
+                foreach ($audienceUsers as $audienceUser) {
+                    $audienceUser->update(['unsubscribe_token' => $token]);
+                }
+            }
+
+            return route('email-system.unsubscribe', [
+                'email' => $emailLog->recipient,
+                'token' => $token,
+            ]);
+        });
     }
 
     protected function cleanOldSentFiles(string $sentDir): void

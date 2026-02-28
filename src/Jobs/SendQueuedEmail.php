@@ -128,15 +128,11 @@ class SendQueuedEmail implements ShouldQueue
 
             if ($isPlainText) {
                 // Plain text: replace unsubscribe placeholders as URLs
-                if ($unsubscribeUrl) {
-                    $processed = preg_replace('/\{\{unsubscribe=(.+?)\}\}/', '$1: ' . $unsubscribeUrl, $processed);
-                    $processed = str_replace('{{unsubscribe_url}}', $unsubscribeUrl, $processed);
-                }
+                $processed = preg_replace('/\{\{unsubscribe=(.+?)\}\}/', '$1: ' . $unsubscribeUrl, $processed);
+                $processed = str_replace('{{unsubscribe_url}}', $unsubscribeUrl, $processed);
             } else {
                 // HTML: full processing
-                if ($unsubscribeUrl) {
-                    $processed = PmtaSpooler::replaceUnsubscribeLinks($processed, $unsubscribeUrl);
-                }
+                $processed = PmtaSpooler::replaceUnsubscribeLinks($processed, $unsubscribeUrl);
                 if ($senderConfig['track_clicks'] ?? true) {
                     $processed = PmtaSpooler::rewriteLinksForTracking($processed, $this->emailLog->id, $unsubscribeUrl);
                 }
@@ -189,10 +185,8 @@ class SendQueuedEmail implements ShouldQueue
 
             if ($isPlainText) {
                 // Plain text: replace unsubscribe placeholders as URLs
-                if ($unsubscribeUrl) {
-                    $messageContent = preg_replace('/\{\{unsubscribe=(.+?)\}\}/', '$1: ' . $unsubscribeUrl, $messageContent);
-                    $messageContent = str_replace('{{unsubscribe_url}}', $unsubscribeUrl, $messageContent);
-                }
+                $messageContent = preg_replace('/\{\{unsubscribe=(.+?)\}\}/', '$1: ' . $unsubscribeUrl, $messageContent);
+                $messageContent = str_replace('{{unsubscribe_url}}', $unsubscribeUrl, $messageContent);
 
                 $params = [
                     'from' => "{$fromName} <{$fromAddress}>",
@@ -203,9 +197,7 @@ class SendQueuedEmail implements ShouldQueue
                 ];
             } else {
                 // HTML: full processing with layout
-                if ($unsubscribeUrl) {
-                    $messageContent = PmtaSpooler::replaceUnsubscribeLinks($messageContent, $unsubscribeUrl);
-                }
+                $messageContent = PmtaSpooler::replaceUnsubscribeLinks($messageContent, $unsubscribeUrl);
                 if ($senderConfig['track_clicks'] ?? true) {
                     $messageContent = PmtaSpooler::rewriteLinksForTracking(
                         $messageContent,
@@ -256,22 +248,20 @@ class SendQueuedEmail implements ShouldQueue
         });
     }
 
-    protected function generateUnsubscribeUrl(): ?string
+    protected function generateUnsubscribeUrl(): string
     {
         return DB::transaction(function () {
+            $token = bin2hex(random_bytes(16));
+
             $audienceUsers = AudienceUser::where('email', $this->emailLog->recipient)
                 ->where('is_active', true)
                 ->lockForUpdate()
                 ->get();
 
-            if ($audienceUsers->isEmpty()) {
-                return null;
-            }
-
-            $token = bin2hex(random_bytes(16));
-
-            foreach ($audienceUsers as $audienceUser) {
-                $audienceUser->update(['unsubscribe_token' => $token]);
+            if ($audienceUsers->isNotEmpty()) {
+                foreach ($audienceUsers as $audienceUser) {
+                    $audienceUser->update(['unsubscribe_token' => $token]);
+                }
             }
 
             return route('email-system.unsubscribe', [

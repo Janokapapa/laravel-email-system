@@ -98,6 +98,8 @@ class PmtaSpooler
             if ($unsubscribeUrl) {
                 $rawText = preg_replace('/\{\{unsubscribe=(.+?)\}\}/', '$1: ' . $unsubscribeUrl, $rawText);
                 $rawText = str_replace('{{unsubscribe_url}}', $unsubscribeUrl, $rawText);
+            } else {
+                $rawText = self::stripUnsubscribePlaceholders($rawText);
             }
 
             $textBody = quoted_printable_encode($rawText);
@@ -127,6 +129,8 @@ EOT;
             // Replace unsubscribe placeholders in the HTML
             if ($unsubscribeUrl) {
                 $rawHtml = self::replaceUnsubscribeLinks($rawHtml, $unsubscribeUrl);
+            } else {
+                $rawHtml = self::stripUnsubscribePlaceholders($rawHtml);
             }
 
             // Rewrite links for click tracking (if enabled for this sender)
@@ -250,6 +254,19 @@ EOT;
             },
             $html
         );
+    }
+
+    /**
+     * Strip unsubscribe placeholders when no URL is available (e.g. test emails).
+     * HTML: {{unsubscribe=Link Text}} → Link Text (no link)
+     * Plain text: {{unsubscribe=Link Text}} → Link Text
+     * Also removes {{unsubscribe_url}} entirely.
+     */
+    public static function stripUnsubscribePlaceholders(string $content): string
+    {
+        $content = preg_replace('/\{\{unsubscribe=(.+?)\}\}/', '$1', $content);
+        $content = str_replace('{{unsubscribe_url}}', '', $content);
+        return $content;
     }
 
     /**
