@@ -30,7 +30,6 @@ class QueueEmailsForAudience implements ShouldQueue
     protected array $skipProviders;
     protected ?int $userId;
     protected ?string $senderName;
-    protected ?\Closure $onComplete = null;
 
     // Campaign-specific fields
     protected ?int $campaignId = null;
@@ -314,6 +313,14 @@ class QueueEmailsForAudience implements ShouldQueue
         }
 
         $query->each(fn ($t) => $t->markFailed($exception->getMessage()));
+
+        // Mark campaign as failed when campaignId is set
+        if ($this->campaignId) {
+            $campaign = \JanDev\EmailSystem\Models\Campaign::find($this->campaignId);
+            if ($campaign && in_array($campaign->status, ['new', 'sending'])) {
+                $campaign->update(['status' => 'failed']);
+            }
+        }
 
         Log::channel('queue')->error("QueueEmailsForAudience failed: " . $exception->getMessage());
 

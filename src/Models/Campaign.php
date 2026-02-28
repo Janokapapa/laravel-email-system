@@ -65,13 +65,11 @@ class Campaign extends Model
     {
         $counts = EmailLog::where('campaign_id', $this->id)
             ->selectRaw("
-                COUNT(*) as total,
                 SUM(CASE WHEN status IN ('sent', 'spooled') THEN 1 ELSE 0 END) as sent,
                 SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed
             ")
             ->first();
 
-        $this->total_recipients = (int) ($counts->total ?? 0);
         $this->sent_count = (int) ($counts->sent ?? 0);
         $this->failed_count = (int) ($counts->failed ?? 0);
         $this->save();
@@ -79,14 +77,18 @@ class Campaign extends Model
 
     public function updateStatusFromCounts(): void
     {
+        $processed = $this->sent_count + $this->failed_count;
+
         if ($this->total_recipients === 0) {
-            $this->status = 'sent';
-        } elseif ($this->sent_count >= $this->total_recipients) {
             $this->status = 'sent';
         } elseif ($this->failed_count >= $this->total_recipients) {
             $this->status = 'failed';
-        } elseif ($this->failed_count > 0) {
+        } elseif ($this->sent_count >= $this->total_recipients) {
+            $this->status = 'sent';
+        } elseif ($this->failed_count > 0 && $this->sent_count > 0) {
             $this->status = 'partial';
+        } elseif ($processed < $this->total_recipients) {
+            $this->status = 'sending';
         } else {
             $this->status = 'sent';
         }

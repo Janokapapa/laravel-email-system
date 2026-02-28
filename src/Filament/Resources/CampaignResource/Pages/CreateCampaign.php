@@ -43,14 +43,11 @@ class CreateCampaign extends CreateRecord
     {
         parent::mount();
 
-        // Resume draft from query parameter or latest unfinished draft
+        // Resume draft from query parameter only
         $draftId = request()->query('draft');
         $draft = $draftId
             ? Campaign::where('id', $draftId)->where('status', 'new')->first()
-            : Campaign::where('status', 'new')
-                ->where('current_step', '<', 5)
-                ->latest()
-                ->first();
+            : null;
 
         if ($draft) {
             $this->draftCampaignId = $draft->id;

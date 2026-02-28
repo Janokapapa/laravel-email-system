@@ -65,12 +65,11 @@ class EditCampaign extends EditRecord
                 ->modalHeading(__('Send Campaign'))
                 ->modalDescription(function (): string {
                     $groupIds = $this->record->audience_group_ids ?? [];
+                    $groups = EmailAudienceGroup::whereIn('id', $groupIds)->get();
                     $total = 0;
                     $unverified = 0;
                     $invalid = 0;
-                    foreach ($groupIds as $id) {
-                        $group = EmailAudienceGroup::find($id);
-                        if (!$group) continue;
+                    foreach ($groups as $group) {
                         $base = $group->audienceUsers()
                             ->where('is_active', true)
                             ->where('bounced', false);
@@ -113,10 +112,11 @@ class EditCampaign extends EditRecord
     {
         $groupIds = $this->record->fresh()->audience_group_ids ?? [];
 
+        // Load all groups in a single query
+        $groups = EmailAudienceGroup::whereIn('id', $groupIds)->get()->keyBy('id');
+
         // Validate all groups still exist
-        $missing = collect($groupIds)
-            ->filter(fn ($id) => !EmailAudienceGroup::find($id))
-            ->count();
+        $missing = collect($groupIds)->filter(fn ($id) => !$groups->has($id))->count();
 
         if ($missing > 0) {
             Notification::make()
@@ -129,9 +129,7 @@ class EditCampaign extends EditRecord
 
         // Calculate total recipients
         $total = 0;
-        foreach ($groupIds as $id) {
-            $group = EmailAudienceGroup::find($id);
-            if (!$group) continue;
+        foreach ($groups as $group) {
             $total += $group->audienceUsers()
                 ->where('is_active', true)
                 ->where('bounced', false)

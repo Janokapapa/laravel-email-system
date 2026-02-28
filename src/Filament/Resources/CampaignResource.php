@@ -42,7 +42,10 @@ class CampaignResource extends Resource
     {
         $tableBuilder = $table
             ->defaultSort('created_at', 'desc')
-            ->poll('5s')
+            ->poll(fn () => Campaign::where('status', 'sending')
+                ->where('created_at', '>=', now()->subDay())
+                ->exists() ? '5s' : null
+            )
             ->recordUrl(fn (Campaign $record): string => $record->status === 'new'
                 ? static::getUrl('edit', ['record' => $record])
                 : static::getUrl('view', ['record' => $record])

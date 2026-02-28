@@ -14,7 +14,8 @@
     $hardBounce = (int) ($stats->hard_bounce ?? 0);
     $softBounce = (int) ($stats->soft_bounce ?? 0);
     $variationCount = count($r->variations ?? []);
-    $hasIssues = $failedCount > 0 || $hardBounce > 0 || $softBounce > 0 || $complainedCount > 0;
+    $unsubscribedCount = (int) ($stats->unsubscribed_count ?? 0);
+    $hasIssues = $failedCount > 0 || $hardBounce > 0 || $softBounce > 0 || $complainedCount > 0 || $unsubscribedCount > 0;
 
     $statusColors = match($r->status) {
         'sent' => ['bg' => '#d1fae5', 'text' => '#047857', 'bar' => '#10b981'],
@@ -265,6 +266,12 @@
                         <div class="cv-issue-label" style="color:#9a3412">{{ __('Complaints') }}</div>
                     </div>
                 @endif
+                @if($unsubscribedCount > 0)
+                    <div class="cv-issue" style="background:#fdf4ff">
+                        <div class="cv-issue-num" style="color:#a21caf">{{ number_format($unsubscribedCount) }}</div>
+                        <div class="cv-issue-label" style="color:#86198f">{{ __('Unsubscribed') }}</div>
+                    </div>
+                @endif
             </div>
         </div>
     @endif
@@ -283,6 +290,7 @@
                         $listSent = (int) $stat->total_sent;
                         $listClicked = (int) ($stat->clicked_count ?? 0);
                         $listFailed = (int) ($stat->failed_count ?? 0);
+                        $listUnsub = (int) ($stat->unsubscribed_count ?? 0);
                         $listClickRate = $listSent > 0 ? round(($listClicked / $listSent) * 100, 1) : 0;
                     @endphp
                     <div class="cv-list-item">
@@ -309,6 +317,12 @@
                                 <span class="cv-list-stat" style="color:#dc2626">
                                     <svg style="width:14px;height:14px;flex-shrink:0" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z"/></svg>
                                     {{ number_format($listFailed) }} {{ __('failed') }}
+                                </span>
+                            @endif
+                            @if($listUnsub > 0)
+                                <span class="cv-list-stat" style="color:#a21caf">
+                                    <svg style="width:14px;height:14px;flex-shrink:0" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path d="M11 5a3 3 0 1 1-6 0 3 3 0 0 1 6 0ZM2.046 15.253c-.058.468.172.92.57 1.175A9.953 9.953 0 0 0 8 18c1.982 0 3.83-.578 5.384-1.573.398-.254.628-.707.57-1.175a6.001 6.001 0 0 0-11.908 0ZM12.75 7.75a.75.75 0 0 0 0 1.5h5.5a.75.75 0 0 0 0-1.5h-5.5Z"/></svg>
+                                    {{ number_format($listUnsub) }} {{ __('unsub') }}
                                 </span>
                             @endif
                         </div>

@@ -39,7 +39,7 @@ class DispatchCampaign implements ShouldQueue
         Log::channel('queue')->info("DispatchCampaign: Campaign {$campaign->id} ({$campaign->name}), groups: " . implode(',', $groupIds));
 
         // Process each audience group sequentially to avoid race conditions
-        // on campaign status finalization
+        // on campaign status finalization. Try-catch per group to allow partial completion.
         foreach ($groupIds as $groupId) {
             $group = EmailAudienceGroup::find($groupId);
 
@@ -48,22 +48,26 @@ class DispatchCampaign implements ShouldQueue
                 continue;
             }
 
-            // Dispatch synchronously to ensure sequential processing
-            QueueEmailsForAudience::dispatchSync(
-                templateId:          $campaign->email_template_id,
-                audienceGroupId:     (int) $groupId,
-                skipProviders:       $campaign->skip_providers ?? [],
-                userId:              null,
-                senderName:          $campaign->sender_name,
-                campaignId:          $campaign->id,
-                campaignSubject:     $campaign->subject,
-                campaignBody:        $campaign->body,
-                senderAddress:       $campaign->sender_address,
-                campaignVariations:  $campaign->variations ?? [],
-                contentType:         $campaign->content_type ?? 'html',
-                senderDisplayName:   $campaign->sender_display_name,
-                replyTo:             $campaign->reply_to,
-            );
+            try {
+                // Dispatch synchronously to ensure sequential processing
+                QueueEmailsForAudience::dispatchSync(
+                    templateId:          $campaign->email_template_id,
+                    audienceGroupId:     (int) $groupId,
+                    skipProviders:       $campaign->skip_providers ?? [],
+                    userId:              null,
+                    senderName:          $campaign->sender_name,
+                    campaignId:          $campaign->id,
+                    campaignSubject:     $campaign->subject,
+                    campaignBody:        $campaign->body,
+                    senderAddress:       $campaign->sender_address,
+                    campaignVariations:  $campaign->variations ?? [],
+                    contentType:         $campaign->content_type ?? 'html',
+                    senderDisplayName:   $campaign->sender_display_name,
+                    replyTo:             $campaign->reply_to,
+                );
+            } catch (\Throwable $e) {
+                Log::channel('queue')->error("DispatchCampaign: Group {$groupId} failed: " . $e->getMessage());
+            }
         }
 
         // After all groups complete, refresh counts and set final status

@@ -36,7 +36,8 @@ class ViewCampaign extends Page
                 SUM(clicked) as clicked_count,
                 SUM(complained) as complained_count,
                 SUM(CASE WHEN bounce_type = 'hard' THEN 1 ELSE 0 END) as hard_bounce,
-                SUM(CASE WHEN bounce_type = 'soft' THEN 1 ELSE 0 END) as soft_bounce
+                SUM(CASE WHEN bounce_type = 'soft' THEN 1 ELSE 0 END) as soft_bounce,
+                SUM(unsubscribed) as unsubscribed_count
             ")
             ->first();
     }
@@ -50,6 +51,7 @@ class ViewCampaign extends Page
                 COUNT(*) as total_sent,
                 SUM(clicked) as clicked_count,
                 SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed_count,
+                SUM(unsubscribed) as unsubscribed_count,
                 MAX(created_at) as last_sent
             ")
             ->groupBy('email_audience_group_id')
@@ -59,10 +61,9 @@ class ViewCampaign extends Page
     public function getListNames(): string
     {
         $groupIds = $this->record->audience_group_ids ?? [];
-        return collect($groupIds)->map(function ($id) {
-            $group = EmailAudienceGroup::find($id);
-            return $group ? $group->name : __('Deleted');
-        })->join(', ') ?: '—';
+        if (empty($groupIds)) return '—';
+        $groups = EmailAudienceGroup::whereIn('id', $groupIds)->pluck('name', 'id');
+        return collect($groupIds)->map(fn ($id) => $groups[$id] ?? __('Deleted'))->join(', ') ?: '—';
     }
 
     public function getSkippedProviders(): string
