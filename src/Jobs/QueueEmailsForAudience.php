@@ -24,46 +24,68 @@ class QueueEmailsForAudience implements ShouldQueue
     public int $tries = 1;
     public int $timeout = 600;
 
-    protected int $templateId;
+    protected ?int $templateId;
     protected int $audienceGroupId;
     protected bool $skipYahoo;
     protected ?int $userId;
     protected ?string $senderName;
     protected ?\Closure $onComplete = null;
 
+    // Campaign-specific fields
+    protected ?int $campaignId = null;
+    protected ?string $campaignSubject = null;
+    protected ?string $campaignBody = null;
+    protected ?string $senderAddress = null;
+
     public function __construct(
-        int $templateId,
+        ?int $templateId,
         int $audienceGroupId,
         bool $skipYahoo = false,
         ?int $userId = null,
-        ?string $senderName = null
+        ?string $senderName = null,
+        ?int $campaignId = null,
+        ?string $campaignSubject = null,
+        ?string $campaignBody = null,
+        ?string $senderAddress = null,
     ) {
         $this->templateId = $templateId;
         $this->audienceGroupId = $audienceGroupId;
         $this->skipYahoo = $skipYahoo;
         $this->userId = $userId;
         $this->senderName = $senderName;
+        $this->campaignId = $campaignId;
+        $this->campaignSubject = $campaignSubject;
+        $this->campaignBody = $campaignBody;
+        $this->senderAddress = $senderAddress;
     }
 
     public function handle(): void
     {
         $startTime = microtime(true);
 
-        $template = EmailTemplate::with('variations')->findOrFail($this->templateId);
+        // Load template if templateId given; use campaign content otherwise
+        $template = $this->templateId ? EmailTemplate::with('variations')->findOrFail($this->templateId) : null;
         $audienceGroup = EmailAudienceGroup::findOrFail($this->audienceGroupId);
 
-        Log::channel('queue')->info("QueueEmailsForAudience: Starting for template {$template->name}, audience {$audienceGroup->name}");
+        $label = $this->campaignId
+            ? "Campaign #{$this->campaignId} → {$audienceGroup->name}"
+            : "Queueing — {$template->name} → {$audienceGroup->name}";
+
+        Log::channel('queue')->info("QueueEmailsForAudience: Starting for {$label}");
 
         $totalUsers = $audienceGroup->audienceUsers()
             ->where('is_active', true)
             ->where('bounced', false)
             ->count();
 
-        $tracker = JobTracker::start('email_queue', "Queueing — {$template->name} → {$audienceGroup->name}", $totalUsers, [
+        $trackerMeta = [
             'template_id' => $this->templateId,
-            'group_id' => $this->audienceGroupId,
+            'group_id'    => $this->audienceGroupId,
             'sender_name' => $this->senderName,
-        ]);
+            'campaign_id' => $this->campaignId,
+        ];
+
+        $tracker = JobTracker::start('email_queue', $label, $totalUsers, $trackerMeta);
 
         // Get all bounced/inactive emails across ALL audience groups
         $blockedFromAudience = AudienceUser::where(function ($q) {
@@ -85,18 +107,23 @@ class QueueEmailsForAudience implements ShouldQueue
 
         Log::channel('queue')->info("QueueEmailsForAudience: Blocked emails count: " . count($blockedEmails));
 
-        // Get emails already sent/queued/spooled for this template (prevent duplicate sends)
+        // Get emails already sent/queued/spooled — scope by campaign_id when available
+        // to prevent duplicate sends within the same campaign (and avoid cross-campaign interference)
+        $alreadySentQuery = $this->campaignId
+            ? EmailLog::where('campaign_id', $this->campaignId)
+            : EmailLog::where('email_template_id', $this->templateId);
+
         $alreadySentEmails = array_flip(
-            EmailLog::where('email_template_id', $template->id)
+            $alreadySentQuery
                 ->whereIn('status', ['sent', 'queued', 'spooled'])
                 ->pluck('recipient')
                 ->toArray()
         );
 
-        Log::channel('queue')->info("QueueEmailsForAudience: Already sent/queued for this template: " . count($alreadySentEmails));
+        Log::channel('queue')->info("QueueEmailsForAudience: Already sent/queued: " . count($alreadySentEmails));
 
-        // Get sender from config
-        $sender = config('email-system.from.address');
+        // Resolve sender address: campaign sender_address takes priority over global config
+        $sender = $this->senderAddress ?? config('email-system.from.address');
 
         // Resolve initial status based on sender type
         // PMTA emails go directly to 'spooled' to bypass SendQueuedEmails
@@ -108,17 +135,34 @@ class QueueEmailsForAudience implements ShouldQueue
             }
         }
 
-        // Build content pool: original template first, then variations
-        // Each entry: ['subject' => ..., 'body' => ..., 'variation_id' => null|int]
-        $contentPool = [
-            ['subject' => $template->subject, 'body' => $template->body, 'variation_id' => null],
-        ];
-        foreach ($template->variations as $variation) {
+        // Build content pool: campaign content OR template (with variations)
+        $contentPool = [];
+
+        if ($this->campaignId && $this->campaignBody !== null) {
+            // Campaign mode: single content (no variations)
             $contentPool[] = [
-                'subject'      => $variation->subject,
-                'body'         => $variation->body,
-                'variation_id' => $variation->id,
+                'subject'      => $this->campaignSubject ?? '',
+                'body'         => $this->campaignBody ?? '',
+                'variation_id' => null,
             ];
+        } elseif ($template) {
+            // Template mode: original + variations
+            $contentPool[] = [
+                'subject'      => $template->subject,
+                'body'         => $template->body,
+                'variation_id' => null,
+            ];
+            foreach ($template->variations as $variation) {
+                $contentPool[] = [
+                    'subject'      => $variation->subject,
+                    'body'         => $variation->body,
+                    'variation_id' => $variation->id,
+                ];
+            }
+        } else {
+            Log::channel('queue')->error("QueueEmailsForAudience: No content source (no template, no campaign body)");
+            $tracker->markFailed('No content source');
+            return;
         }
 
         // Prepare batch insert data
@@ -163,8 +207,9 @@ class QueueEmailsForAudience implements ShouldQueue
                         : $contentPool[0];
 
                     $batchData[] = [
-                        'email_template_id'       => $template->id,
+                        'email_template_id'       => $this->templateId,
                         'email_audience_group_id' => $audienceGroup->id,
+                        'campaign_id'             => $this->campaignId,
                         'recipient'               => $user->email,
                         'recipient_name'          => $user->name,
                         'subject'                 => $user->resolvePlaceholders($content['subject']),
@@ -215,11 +260,17 @@ class QueueEmailsForAudience implements ShouldQueue
     public function failed(\Throwable $exception): void
     {
         // Mark any running tracker for this job as failed
-        JobTracker::where('type', 'email_queue')
+        $query = JobTracker::where('type', 'email_queue')
             ->where('status', 'running')
-            ->where('meta->template_id', $this->templateId)
-            ->where('meta->group_id', $this->audienceGroupId)
-            ->each(fn ($t) => $t->markFailed($exception->getMessage()));
+            ->where('meta->group_id', $this->audienceGroupId);
+
+        if ($this->templateId) {
+            $query->where('meta->template_id', $this->templateId);
+        } elseif ($this->campaignId) {
+            $query->where('meta->campaign_id', $this->campaignId);
+        }
+
+        $query->each(fn ($t) => $t->markFailed($exception->getMessage()));
 
         Log::channel('queue')->error("QueueEmailsForAudience failed: " . $exception->getMessage());
 

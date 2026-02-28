@@ -12,6 +12,7 @@ class EmailLog extends Model
     protected $fillable = [
         'email_template_id',
         'email_audience_group_id',
+        'campaign_id',
         'variation_id',
         'reference_type',
         'reference_id',
@@ -55,6 +56,11 @@ class EmailLog extends Model
     public function emailAudienceGroup()
     {
         return $this->belongsTo(EmailAudienceGroup::class);
+    }
+
+    public function campaign()
+    {
+        return $this->belongsTo(Campaign::class);
     }
 
     public function getStatusLabelAttribute(): string

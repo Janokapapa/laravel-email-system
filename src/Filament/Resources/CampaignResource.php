@@ -1,0 +1,136 @@
+<?php
+
+namespace JanDev\EmailSystem\Filament\Resources;
+
+use JanDev\EmailSystem\Filament\Resources\CampaignResource\Pages;
+use JanDev\EmailSystem\Models\Campaign;
+use Filament\Resources\Resource;
+use Filament\Tables\Table;
+use Filament\Tables\Columns\TextColumn;
+use Filament\Actions\DeleteAction;
+use Filament\Actions\DeleteBulkAction;
+use Filament\Actions\EditAction;
+
+class CampaignResource extends Resource
+{
+    protected static ?string $model = Campaign::class;
+
+    protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-megaphone';
+
+    public static function getNavigationLabel(): string
+    {
+        return __('Campaigns');
+    }
+
+    public static function getNavigationGroup(): ?string
+    {
+        return config('email-system.filament.navigation_group', 'Marketing');
+    }
+
+    public static function getModelLabel(): string
+    {
+        return __('Campaign');
+    }
+
+    public static function getPluralModelLabel(): string
+    {
+        return __('Campaigns');
+    }
+
+    public static function table(Table $table): Table
+    {
+        // Check if any campaigns are currently sending (within last 24h)
+        $hasSending = Campaign::where('status', 'sending')
+            ->where('sent_at', '>=', now()->subHours(24))
+            ->exists();
+
+        $tableBuilder = $table
+            ->defaultSort('created_at', 'desc')
+            ->columns([
+                TextColumn::make('name')
+                    ->label(__('Campaign Name'))
+                    ->searchable()
+                    ->sortable()
+                    ->weight('bold'),
+
+                TextColumn::make('sender_name')
+                    ->label(__('Sender'))
+                    ->badge()
+                    ->color('gray'),
+
+                TextColumn::make('emailTemplate.name')
+                    ->label(__('Template'))
+                    ->default('—')
+                    ->limit(30),
+
+                TextColumn::make('status')
+                    ->label(__('Status'))
+                    ->badge()
+                    ->color(fn (string $state): string => match ($state) {
+                        'new'     => 'gray',
+                        'sending' => 'warning',
+                        'sent'    => 'success',
+                        'partial' => 'info',
+                        'failed'  => 'danger',
+                        default   => 'gray',
+                    })
+                    ->formatStateUsing(fn (string $state): string => match ($state) {
+                        'new'     => __('New'),
+                        'sending' => __('Sending...'),
+                        'sent'    => __('Sent'),
+                        'partial' => __('Partial'),
+                        'failed'  => __('Failed'),
+                        default   => ucfirst($state),
+                    }),
+
+                TextColumn::make('progress')
+                    ->label(__('Progress'))
+                    ->getStateUsing(function (Campaign $record): string {
+                        if ($record->status === 'new') {
+                            return '—';
+                        }
+                        $total = $record->total_recipients;
+                        $sent  = $record->sent_count;
+                        if ($total === 0) {
+                            return '—';
+                        }
+                        $pct = $record->getProgressPercent();
+                        return "{$sent} / {$total} ({$pct}%)";
+                    }),
+
+                TextColumn::make('created_at')
+                    ->label(__('Created'))
+                    ->dateTime('Y-m-d H:i')
+                    ->sortable(),
+            ])
+            ->filters([])
+            ->recordActions([
+                EditAction::make()
+                    ->visible(fn (Campaign $record): bool => $record->status === 'new'),
+                DeleteAction::make(),
+            ])
+            ->toolbarActions([
+                DeleteBulkAction::make(),
+            ]);
+
+        if ($hasSending) {
+            $tableBuilder->poll('5s');
+        }
+
+        return $tableBuilder;
+    }
+
+    public static function getRelations(): array
+    {
+        return [];
+    }
+
+    public static function getPages(): array
+    {
+        return [
+            'index'  => Pages\ListCampaigns::route('/'),
+            'create' => Pages\CreateCampaign::route('/create'),
+            'edit'   => Pages\EditCampaign::route('/{record}/edit'),
+        ];
+    }
+}

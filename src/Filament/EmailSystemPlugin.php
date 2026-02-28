@@ -4,6 +4,7 @@ namespace JanDev\EmailSystem\Filament;
 
 use Filament\Contracts\Plugin;
 use Filament\Panel;
+use JanDev\EmailSystem\Filament\Resources\CampaignResource;
 use JanDev\EmailSystem\Filament\Resources\EmailTemplateResource;
 use JanDev\EmailSystem\Filament\Resources\EmailAudienceGroupResource;
 use JanDev\EmailSystem\Filament\Resources\EmailLogResource;
@@ -20,6 +21,7 @@ class EmailSystemPlugin implements Plugin
     public function register(Panel $panel): void
     {
         $panel->resources([
+            CampaignResource::class,
             EmailTemplateResource::class,
             EmailAudienceGroupResource::class,
             EmailLogResource::class,
