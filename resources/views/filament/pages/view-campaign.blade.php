@@ -16,12 +16,12 @@
     $variationCount = count($r->variations ?? []);
     $hasIssues = $failedCount > 0 || $hardBounce > 0 || $softBounce > 0 || $complainedCount > 0;
 
-    $statusColor = match($r->status) {
-        'sent' => 'emerald',
-        'sending' => 'amber',
-        'partial' => 'blue',
-        'failed' => 'red',
-        default => 'gray',
+    $statusColors = match($r->status) {
+        'sent' => ['bg' => '#d1fae5', 'text' => '#047857', 'bar' => '#10b981'],
+        'sending' => ['bg' => '#fef3c7', 'text' => '#b45309', 'bar' => '#f59e0b'],
+        'partial' => ['bg' => '#dbeafe', 'text' => '#1d4ed8', 'bar' => '#3b82f6'],
+        'failed' => ['bg' => '#fee2e2', 'text' => '#dc2626', 'bar' => '#ef4444'],
+        default => ['bg' => '#f3f4f6', 'text' => '#6b7280', 'bar' => '#9ca3af'],
     };
     $statusLabel = match($r->status) {
         'new' => __('New'),
@@ -33,160 +33,201 @@
     };
 @endphp
 
-<div class="space-y-6">
+<style>
+    .cv-card { background: var(--fi-body-bg, #fff); border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.06); border: 1px solid rgba(0,0,0,.05); overflow: hidden; }
+    .dark .cv-card { background: rgb(24 24 27); border-color: rgba(255,255,255,.1); }
+    .cv-pad { padding: 24px; }
+    .cv-grid { display: grid; gap: 16px; }
+    .cv-grid-2 { grid-template-columns: repeat(2, 1fr); }
+    .cv-grid-3 { grid-template-columns: repeat(3, 1fr); }
+    .cv-grid-4 { grid-template-columns: repeat(4, 1fr); }
+    .cv-flex { display: flex; align-items: center; }
+    .cv-between { justify-content: space-between; }
+    .cv-gap-2 { gap: 8px; }
+    .cv-gap-3 { gap: 12px; }
+    .cv-gap-4 { gap: 16px; }
+    .cv-wrap { flex-wrap: wrap; }
+    .cv-badge { display: inline-flex; align-items: center; gap: 6px; border-radius: 8px; padding: 4px 12px; font-size: 13px; font-weight: 600; }
+    .cv-badge-sm { display: inline-flex; align-items: center; border-radius: 6px; padding: 2px 8px; font-size: 11px; font-weight: 500; }
+    .cv-chip { display: inline-flex; align-items: center; gap: 6px; border-radius: 20px; padding: 5px 12px; font-size: 12px; font-weight: 500; background: #f9fafb; color: #6b7280; }
+    .dark .cv-chip { background: rgb(39 39 42); color: #a1a1aa; }
+    .cv-h3 { font-size: 18px; font-weight: 700; color: #111827; margin: 0 0 4px 0; line-height: 1.3; }
+    .dark .cv-h3 { color: #fff; }
+    .cv-sub { font-size: 13px; color: #6b7280; }
+    .dark .cv-sub { color: #a1a1aa; }
+    .cv-sent-info { text-align: right; flex-shrink: 0; padding-left: 16px; }
+    .cv-sent-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #9ca3af; margin-bottom: 2px; }
+    .cv-sent-date { font-size: 13px; font-weight: 600; color: #374151; }
+    .dark .cv-sent-date { color: #e5e7eb; }
+    .cv-sent-time { font-size: 11px; color: #9ca3af; }
+    .cv-divider { border-top: 1px solid #f3f4f6; margin-top: 16px; padding-top: 16px; }
+    .dark .cv-divider { border-color: rgb(39 39 42); }
+    .cv-stat { display: flex; align-items: center; gap: 10px; }
+    .cv-stat-icon { width: 36px; height: 36px; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .cv-stat-num { font-size: 20px; font-weight: 700; color: #111827; line-height: 1; }
+    .dark .cv-stat-num { color: #fff; }
+    .cv-stat-num.muted { color: #d1d5db; }
+    .dark .cv-stat-num.muted { color: #52525b; }
+    .cv-stat-label { font-size: 11px; color: #6b7280; margin-top: 2px; }
+    .dark .cv-stat-label { color: #a1a1aa; }
+    .cv-progress-wrap { width: 100%; height: 10px; background: #f3f4f6; border-radius: 99px; overflow: hidden; }
+    .dark .cv-progress-wrap { background: rgb(39 39 42); }
+    .cv-progress-bar { height: 100%; border-radius: 99px; transition: width 0.5s ease; }
+    .cv-progress-label { font-size: 13px; font-weight: 500; color: #374151; }
+    .dark .cv-progress-label { color: #d1d5db; }
+    .cv-progress-val { font-size: 13px; }
+    .cv-section-title { font-size: 15px; font-weight: 600; color: #111827; margin: 0; }
+    .dark .cv-section-title { color: #fff; }
+    .cv-issue { border-radius: 8px; padding: 12px; }
+    .cv-issue-num { font-size: 17px; font-weight: 700; }
+    .cv-issue-label { font-size: 11px; font-weight: 500; }
+    .cv-list-item { border-radius: 8px; border: 1px solid #f3f4f6; padding: 14px 16px; }
+    .dark .cv-list-item { border-color: rgb(39 39 42); }
+    .cv-list-name { font-size: 13px; font-weight: 600; color: #111827; }
+    .dark .cv-list-name { color: #fff; }
+    .cv-list-date { font-size: 11px; color: #9ca3af; }
+    .cv-list-stat { font-size: 13px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; }
+    .cv-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+    .cv-accent-bar { height: 3px; }
+    @media (max-width: 640px) {
+        .cv-grid-3, .cv-grid-4 { grid-template-columns: repeat(2, 1fr); }
+    }
+</style>
+
+<div style="display:flex;flex-direction:column;gap:24px;">
 
     {{-- Header --}}
-    <div class="fi-section rounded-xl bg-white shadow-sm ring-1 ring-gray-950/5 dark:bg-gray-900 dark:ring-white/10 overflow-hidden">
-        {{-- Color accent bar --}}
-        <div class="h-1 bg-{{ $statusColor }}-500"></div>
-        <div class="p-6">
-            <div class="flex items-start justify-between gap-4">
-                <div class="min-w-0 flex-1">
-                    <div class="flex items-center gap-2.5 mb-3">
-                        <span class="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold bg-{{ $statusColor }}-50 text-{{ $statusColor }}-700 dark:bg-{{ $statusColor }}-500/10 dark:text-{{ $statusColor }}-400">
+    <div class="cv-card">
+        <div class="cv-accent-bar" style="background:{{ $statusColors['bar'] }}"></div>
+        <div class="cv-pad">
+            <div class="cv-flex cv-between cv-gap-4" style="align-items:flex-start">
+                <div style="min-width:0;flex:1">
+                    <div class="cv-flex cv-gap-2 cv-wrap" style="margin-bottom:12px">
+                        <span class="cv-badge" style="background:{{ $statusColors['bg'] }};color:{{ $statusColors['text'] }}">
                             @if($r->status === 'sending')
-                                <span class="w-2 h-2 rounded-full bg-{{ $statusColor }}-500 animate-pulse"></span>
+                                <span class="cv-dot" style="background:{{ $statusColors['bar'] }};animation:pulse 2s infinite"></span>
                             @endif
                             {{ $statusLabel }}
                         </span>
                         @if($r->content_type === 'text')
-                            <span class="inline-flex items-center rounded-md px-2 py-1 text-xs font-medium bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400">
-                                {{ __('Plain Text') }}
-                            </span>
+                            <span class="cv-badge-sm" style="background:#f3f4f6;color:#6b7280">{{ __('Plain Text') }}</span>
                         @endif
                         @if($variationCount > 0)
-                            <span class="inline-flex items-center rounded-md px-2 py-1 text-xs font-medium bg-indigo-50 text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-400">
-                                {{ $variationCount }} {{ trans_choice('variation|variations', $variationCount) }}
-                            </span>
+                            <span class="cv-badge-sm" style="background:#eef2ff;color:#4f46e5">{{ $variationCount }} {{ trans_choice('variation|variations', $variationCount) }}</span>
                         @endif
                     </div>
-                    <h3 class="text-xl font-bold text-gray-900 dark:text-white mb-1.5 leading-tight">{{ e($r->subject) }}</h3>
-                    <p class="text-sm text-gray-500 dark:text-gray-400">
-                        {{ e($r->sender_display_name ?? $r->sender_name) }} &lt;{{ e($r->sender_address) }}&gt;
-                    </p>
+                    <h3 class="cv-h3">{{ e($r->subject) }}</h3>
+                    <p class="cv-sub" style="margin:0">{{ e($r->sender_display_name ?? $r->sender_name) }} &lt;{{ e($r->sender_address) }}&gt;</p>
                 </div>
                 @if($r->sent_at)
-                    <div class="text-right shrink-0 pl-4">
-                        <div class="text-xs uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-0.5">{{ __('Sent') }}</div>
-                        <div class="text-sm font-semibold text-gray-800 dark:text-gray-200">{{ $r->sent_at->format('M j, Y') }}</div>
-                        <div class="text-xs text-gray-400 dark:text-gray-500">{{ $r->sent_at->format('H:i') }}</div>
+                    <div class="cv-sent-info">
+                        <div class="cv-sent-label">{{ __('Sent') }}</div>
+                        <div class="cv-sent-date">{{ $r->sent_at->format('M j, Y') }}</div>
+                        <div class="cv-sent-time">{{ $r->sent_at->format('H:i') }}</div>
                     </div>
                 @endif
             </div>
 
-            {{-- Meta chips --}}
-            <div class="mt-4 pt-4 border-t border-gray-100 dark:border-gray-800 flex flex-wrap gap-3">
-                <span class="inline-flex items-center gap-1.5 rounded-full bg-gray-50 dark:bg-gray-800 px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-400">
-                    <x-heroicon-m-user-group class="w-3.5 h-3.5" />
-                    {{ $this->getListNames() }}
-                </span>
-                @if($this->getSkippedProviders())
-                    <span class="inline-flex items-center gap-1.5 rounded-full bg-gray-50 dark:bg-gray-800 px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-400">
-                        <x-heroicon-m-no-symbol class="w-3.5 h-3.5" />
-                        {{ __('Skip') }}: {{ $this->getSkippedProviders() }}
+            <div class="cv-divider">
+                <div class="cv-flex cv-gap-3 cv-wrap">
+                    <span class="cv-chip">
+                        <svg style="width:14px;height:14px;flex-shrink:0" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path d="M10 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6 8a2 2 0 1 1-4 0 2 2 0 0 1 4 0ZM1.49 15.326a.78.78 0 0 1-.358-.442 3 3 0 0 1 4.308-3.516 6.484 6.484 0 0 0-1.905 3.959c-.023.222-.014.442.025.654a4.97 4.97 0 0 1-2.07-.655ZM16.44 15.98a4.97 4.97 0 0 0 2.07-.654.78.78 0 0 0 .357-.442 3 3 0 0 0-4.308-3.517 6.484 6.484 0 0 1 1.907 3.96 2.32 2.32 0 0 1-.026.654ZM18 8a2 2 0 1 1-4 0 2 2 0 0 1 4 0ZM5.304 16.19a.844.844 0 0 1-.277-.71 5 5 0 0 1 9.947 0 .843.843 0 0 1-.277.71A6.975 6.975 0 0 1 10 18a6.974 6.974 0 0 1-4.696-1.81Z"/></svg>
+                        {{ $this->getListNames() }}
                     </span>
-                @endif
-                <span class="inline-flex items-center gap-1.5 rounded-full bg-gray-50 dark:bg-gray-800 px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-400">
-                    <x-heroicon-m-envelope class="w-3.5 h-3.5" />
-                    {{ number_format($r->total_recipients ?? 0) }} {{ __('recipients') }}
+                    @if($this->getSkippedProviders())
+                        <span class="cv-chip">
+                            <svg style="width:14px;height:14px;flex-shrink:0" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path d="M5.965 4.904a9.461 9.461 0 0 1 9.131 9.131l-1.273 1.273A.75.75 0 0 1 12.5 14.75v-2.652a.75.75 0 0 1 .616-.736 7.985 7.985 0 0 0-.676-3.187l-6.475 6.475a.75.75 0 0 1-.53.22H2.783a.75.75 0 0 1-.557-1.254l3.739-3.739ZM10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16Z"/></svg>
+                            {{ __('Skip') }}: {{ $this->getSkippedProviders() }}
+                        </span>
+                    @endif
+                    <span class="cv-chip">
+                        <svg style="width:14px;height:14px;flex-shrink:0" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path d="M3 4a2 2 0 0 0-2 2v1.161l8.441 4.221a1.25 1.25 0 0 0 1.118 0L19 7.162V6a2 2 0 0 0-2-2H3Z"/><path d="m19 8.839-7.77 3.885a2.75 2.75 0 0 1-2.46 0L1 8.839V14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8.839Z"/></svg>
+                        {{ number_format($r->total_recipients ?? 0) }} {{ __('recipients') }}
+                    </span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {{-- Stats + Progress --}}
+    <div class="cv-card cv-pad">
+        <div class="cv-grid {{ $queuedCount > 0 ? 'cv-grid-4' : 'cv-grid-3' }}" style="margin-bottom:24px">
+            {{-- Delivered --}}
+            <div class="cv-stat">
+                <div class="cv-stat-icon" style="background:#d1fae5">
+                    <svg style="width:18px;height:18px;color:#047857" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm3.857-9.809a.75.75 0 0 0-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 1 0-1.06 1.061l2.5 2.5a.75.75 0 0 0 1.137-.089l4-5.5Z" clip-rule="evenodd"/></svg>
+                </div>
+                <div>
+                    <div class="cv-stat-num">{{ number_format($sentCount) }}</div>
+                    <div class="cv-stat-label">{{ __('Delivered') }}</div>
+                </div>
+            </div>
+
+            {{-- Clicked --}}
+            <div class="cv-stat">
+                <div class="cv-stat-icon" style="background:{{ $clickedCount > 0 ? '#ede9fe' : '#f3f4f6' }}">
+                    <svg style="width:18px;height:18px;color:{{ $clickedCount > 0 ? '#7c3aed' : '#9ca3af' }}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path d="M6.111 11.89A5.5 5.5 0 1 1 15.501 8 .75.75 0 0 0 17 8a7 7 0 1 0-11.95 4.95.75.75 0 0 0 1.06-1.06Zm2.121-5.658a2.5 2.5 0 0 0 0 3.536.75.75 0 1 1-1.06 1.06A4 4 0 1 1 14 8a.75.75 0 0 1-1.5 0 2.5 2.5 0 0 0-4.268-1.768Zm2.534 1.279a.75.75 0 0 0-1.37.364l-.492 6.861a.75.75 0 0 0 1.204.65l1.043-.723.985 1.678a.75.75 0 1 0 1.292-.758l-.985-1.677 1.18-.406a.75.75 0 0 0-.2-1.441l-2.657-.308Z"/></svg>
+                </div>
+                <div>
+                    <div class="cv-stat-num {{ $clickedCount === 0 ? 'muted' : '' }}">{{ number_format($clickedCount) }}</div>
+                    <div class="cv-stat-label">
+                        {{ __('Clicked') }}
+                        @if($clickedCount > 0)
+                            <span style="color:#7c3aed;font-weight:500">({{ $clickRate }}%)</span>
+                        @endif
+                    </div>
+                </div>
+            </div>
+
+            {{-- Queued --}}
+            @if($queuedCount > 0)
+                <div class="cv-stat">
+                    <div class="cv-stat-icon" style="background:#fef3c7">
+                        <span class="cv-dot" style="width:10px;height:10px;background:#f59e0b;animation:pulse 2s infinite"></span>
+                    </div>
+                    <div>
+                        <div class="cv-stat-num">{{ number_format($queuedCount) }}</div>
+                        <div class="cv-stat-label">{{ __('Queued') }}</div>
+                    </div>
+                </div>
+            @endif
+
+            {{-- Failed --}}
+            <div class="cv-stat">
+                <div class="cv-stat-icon" style="background:{{ $failedCount > 0 ? '#fee2e2' : '#f3f4f6' }}">
+                    <svg style="width:18px;height:18px;color:{{ $failedCount > 0 ? '#dc2626' : '#9ca3af' }}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16ZM8.28 7.22a.75.75 0 0 0-1.06 1.06L8.94 10l-1.72 1.72a.75.75 0 1 0 1.06 1.06L10 11.06l1.72 1.72a.75.75 0 1 0 1.06-1.06L11.06 10l1.72-1.72a.75.75 0 0 0-1.06-1.06L10 8.94 8.28 7.22Z" clip-rule="evenodd"/></svg>
+                </div>
+                <div>
+                    <div class="cv-stat-num {{ $failedCount === 0 ? 'muted' : '' }}">{{ number_format($failedCount) }}</div>
+                    <div class="cv-stat-label">{{ __('Failed') }}</div>
+                </div>
+            </div>
+        </div>
+
+        {{-- Delivery progress --}}
+        <div style="border-top:1px solid #f3f4f6;padding-top:20px">
+            <div class="cv-flex cv-between" style="margin-bottom:8px">
+                <span class="cv-progress-label">{{ __('Delivery') }}</span>
+                <span class="cv-progress-val">
+                    <strong style="color:#111827">{{ number_format($r->sent_count ?? 0) }}</strong>
+                    <span style="color:#9ca3af"> / {{ number_format($r->total_recipients ?? 0) }}</span>
+                    <strong style="color:{{ $deliveryPct >= 100 ? '#047857' : '#374151' }};margin-left:4px">({{ $deliveryPct }}%)</strong>
                 </span>
             </div>
-        </div>
-    </div>
-
-    {{-- Big numbers row --}}
-    <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        {{-- Delivered --}}
-        <div class="fi-section rounded-xl bg-white shadow-sm ring-1 ring-gray-950/5 dark:bg-gray-900 dark:ring-white/10 p-5 relative overflow-hidden">
-            <div class="absolute top-0 right-0 w-16 h-16 -mr-4 -mt-4 rounded-full bg-emerald-500/5 dark:bg-emerald-500/10"></div>
-            <div class="relative">
-                <div class="flex items-center gap-2 mb-2">
-                    <div class="w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-500/20 flex items-center justify-center">
-                        <x-heroicon-m-check-circle class="w-4.5 h-4.5 text-emerald-600 dark:text-emerald-400" />
-                    </div>
-                </div>
-                <div class="text-2xl font-bold text-gray-900 dark:text-white">{{ number_format($sentCount) }}</div>
-                <div class="text-xs font-medium text-gray-500 dark:text-gray-400 mt-0.5">{{ __('Delivered') }}</div>
+            <div class="cv-progress-wrap">
+                <div class="cv-progress-bar" style="width:{{ min($deliveryPct, 100) }}%;background:#10b981"></div>
             </div>
         </div>
 
-        {{-- Queued --}}
-        @if($queuedCount > 0)
-            <div class="fi-section rounded-xl bg-white shadow-sm ring-1 ring-gray-950/5 dark:bg-gray-900 dark:ring-white/10 p-5 relative overflow-hidden">
-                <div class="absolute top-0 right-0 w-16 h-16 -mr-4 -mt-4 rounded-full bg-amber-500/5 dark:bg-amber-500/10"></div>
-                <div class="relative">
-                    <div class="flex items-center gap-2 mb-2">
-                        <div class="w-8 h-8 rounded-lg bg-amber-100 dark:bg-amber-500/20 flex items-center justify-center">
-                            <span class="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse"></span>
-                        </div>
-                    </div>
-                    <div class="text-2xl font-bold text-gray-900 dark:text-white">{{ number_format($queuedCount) }}</div>
-                    <div class="text-xs font-medium text-gray-500 dark:text-gray-400 mt-0.5">{{ __('Queued') }}</div>
-                </div>
-            </div>
-        @endif
-
-        {{-- Clicked --}}
+        {{-- Click rate --}}
         @if($clickedCount > 0)
-            <div class="fi-section rounded-xl bg-white shadow-sm ring-1 ring-gray-950/5 dark:bg-gray-900 dark:ring-white/10 p-5 relative overflow-hidden">
-                <div class="absolute top-0 right-0 w-16 h-16 -mr-4 -mt-4 rounded-full bg-purple-500/5 dark:bg-purple-500/10"></div>
-                <div class="relative">
-                    <div class="flex items-center gap-2 mb-2">
-                        <div class="w-8 h-8 rounded-lg bg-purple-100 dark:bg-purple-500/20 flex items-center justify-center">
-                            <x-heroicon-m-cursor-arrow-rays class="w-4.5 h-4.5 text-purple-600 dark:text-purple-400" />
-                        </div>
-                    </div>
-                    <div class="text-2xl font-bold text-gray-900 dark:text-white">{{ number_format($clickedCount) }}</div>
-                    <div class="text-xs font-medium text-gray-500 dark:text-gray-400 mt-0.5">{{ __('Clicked') }} <span class="text-purple-600 dark:text-purple-400">({{ $clickRate }}%)</span></div>
+            <div style="margin-top:16px">
+                <div class="cv-flex cv-between" style="margin-bottom:8px">
+                    <span class="cv-progress-label">{{ __('Click rate') }}</span>
+                    <strong style="color:#7c3aed;font-size:13px">{{ $clickRate }}%</strong>
                 </div>
-            </div>
-        @endif
-
-        {{-- Failed --}}
-        @if($failedCount > 0)
-            <div class="fi-section rounded-xl bg-white shadow-sm ring-1 ring-gray-950/5 dark:bg-gray-900 dark:ring-white/10 p-5 relative overflow-hidden">
-                <div class="absolute top-0 right-0 w-16 h-16 -mr-4 -mt-4 rounded-full bg-red-500/5 dark:bg-red-500/10"></div>
-                <div class="relative">
-                    <div class="flex items-center gap-2 mb-2">
-                        <div class="w-8 h-8 rounded-lg bg-red-100 dark:bg-red-500/20 flex items-center justify-center">
-                            <x-heroicon-m-x-circle class="w-4.5 h-4.5 text-red-600 dark:text-red-400" />
-                        </div>
-                    </div>
-                    <div class="text-2xl font-bold text-gray-900 dark:text-white">{{ number_format($failedCount) }}</div>
-                    <div class="text-xs font-medium text-gray-500 dark:text-gray-400 mt-0.5">{{ __('Failed') }}</div>
-                </div>
-            </div>
-        @endif
-    </div>
-
-    {{-- Delivery progress --}}
-    <div class="fi-section rounded-xl bg-white shadow-sm ring-1 ring-gray-950/5 dark:bg-gray-900 dark:ring-white/10 p-6">
-        <div class="flex items-center justify-between mb-3">
-            <span class="text-sm font-semibold text-gray-900 dark:text-white">{{ __('Delivery Progress') }}</span>
-            <span class="text-sm tabular-nums">
-                <span class="font-bold text-gray-900 dark:text-white">{{ number_format($r->sent_count ?? 0) }}</span>
-                <span class="text-gray-400">/</span>
-                <span class="text-gray-500 dark:text-gray-400">{{ number_format($r->total_recipients ?? 0) }}</span>
-            </span>
-        </div>
-        <div class="w-full bg-gray-100 dark:bg-gray-800 rounded-full h-3 overflow-hidden">
-            <div class="h-full rounded-full transition-all duration-500 {{ $deliveryPct >= 100 ? 'bg-emerald-500' : 'bg-emerald-500' }}" style="width: {{ min($deliveryPct, 100) }}%"></div>
-        </div>
-        <div class="flex items-center justify-between mt-2">
-            <span class="text-xs text-gray-400">0%</span>
-            <span class="text-sm font-bold {{ $deliveryPct >= 100 ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-600 dark:text-gray-300' }}">{{ $deliveryPct }}%</span>
-            <span class="text-xs text-gray-400">100%</span>
-        </div>
-
-        {{-- Click rate bar (only if there are clicks) --}}
-        @if($clickedCount > 0)
-            <div class="mt-5 pt-5 border-t border-gray-100 dark:border-gray-800">
-                <div class="flex items-center justify-between mb-3">
-                    <span class="text-sm font-semibold text-gray-900 dark:text-white">{{ __('Click Rate') }}</span>
-                    <span class="text-sm font-bold text-purple-600 dark:text-purple-400">{{ $clickRate }}%</span>
-                </div>
-                <div class="w-full bg-gray-100 dark:bg-gray-800 rounded-full h-3 overflow-hidden">
-                    <div class="bg-purple-500 h-full rounded-full transition-all duration-500" style="width: {{ min($clickRate, 100) }}%"></div>
+                <div class="cv-progress-wrap">
+                    <div class="cv-progress-bar" style="width:{{ min($clickRate, 100) }}%;background:#8b5cf6"></div>
                 </div>
             </div>
         @endif
@@ -194,34 +235,34 @@
 
     {{-- Issues --}}
     @if($hasIssues)
-        <div class="fi-section rounded-xl bg-white shadow-sm ring-1 ring-gray-950/5 dark:bg-gray-900 dark:ring-white/10 p-6">
-            <div class="flex items-center gap-2 mb-4">
-                <x-heroicon-m-exclamation-triangle class="w-5 h-5 text-amber-500" />
-                <h3 class="text-base font-semibold text-gray-900 dark:text-white">{{ __('Issues') }}</h3>
+        <div class="cv-card cv-pad">
+            <div class="cv-flex cv-gap-2" style="margin-bottom:16px">
+                <svg style="width:16px;height:16px;color:#f59e0b;flex-shrink:0" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495ZM10 5a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0v-3.5A.75.75 0 0 1 10 5Zm0 9a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" clip-rule="evenodd"/></svg>
+                <h3 class="cv-section-title">{{ __('Issues') }}</h3>
             </div>
-            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div class="cv-grid cv-grid-4">
                 @if($failedCount > 0)
-                    <div class="rounded-lg bg-red-50 dark:bg-red-500/10 p-3">
-                        <div class="text-lg font-bold text-red-600 dark:text-red-400">{{ number_format($failedCount) }}</div>
-                        <div class="text-xs font-medium text-red-700 dark:text-red-300">{{ __('Failed') }}</div>
+                    <div class="cv-issue" style="background:#fef2f2">
+                        <div class="cv-issue-num" style="color:#dc2626">{{ number_format($failedCount) }}</div>
+                        <div class="cv-issue-label" style="color:#b91c1c">{{ __('Failed') }}</div>
                     </div>
                 @endif
                 @if($hardBounce > 0)
-                    <div class="rounded-lg bg-red-50 dark:bg-red-500/10 p-3">
-                        <div class="text-lg font-bold text-red-600 dark:text-red-400">{{ number_format($hardBounce) }}</div>
-                        <div class="text-xs font-medium text-red-700 dark:text-red-300">{{ __('Hard bounce') }}</div>
+                    <div class="cv-issue" style="background:#fef2f2">
+                        <div class="cv-issue-num" style="color:#dc2626">{{ number_format($hardBounce) }}</div>
+                        <div class="cv-issue-label" style="color:#b91c1c">{{ __('Hard bounce') }}</div>
                     </div>
                 @endif
                 @if($softBounce > 0)
-                    <div class="rounded-lg bg-amber-50 dark:bg-amber-500/10 p-3">
-                        <div class="text-lg font-bold text-amber-600 dark:text-amber-400">{{ number_format($softBounce) }}</div>
-                        <div class="text-xs font-medium text-amber-700 dark:text-amber-300">{{ __('Soft bounce') }}</div>
+                    <div class="cv-issue" style="background:#fffbeb">
+                        <div class="cv-issue-num" style="color:#d97706">{{ number_format($softBounce) }}</div>
+                        <div class="cv-issue-label" style="color:#92400e">{{ __('Soft bounce') }}</div>
                     </div>
                 @endif
                 @if($complainedCount > 0)
-                    <div class="rounded-lg bg-orange-50 dark:bg-orange-500/10 p-3">
-                        <div class="text-lg font-bold text-orange-600 dark:text-orange-400">{{ number_format($complainedCount) }}</div>
-                        <div class="text-xs font-medium text-orange-700 dark:text-orange-300">{{ __('Complaints') }}</div>
+                    <div class="cv-issue" style="background:#fff7ed">
+                        <div class="cv-issue-num" style="color:#ea580c">{{ number_format($complainedCount) }}</div>
+                        <div class="cv-issue-label" style="color:#9a3412">{{ __('Complaints') }}</div>
                     </div>
                 @endif
             </div>
@@ -230,12 +271,12 @@
 
     {{-- By audience --}}
     @if($audienceStats->count() > 0)
-        <div class="fi-section rounded-xl bg-white shadow-sm ring-1 ring-gray-950/5 dark:bg-gray-900 dark:ring-white/10 p-6">
-            <div class="flex items-center gap-2 mb-4">
-                <x-heroicon-m-rectangle-stack class="w-5 h-5 text-gray-400" />
-                <h3 class="text-base font-semibold text-gray-900 dark:text-white">{{ __('By List') }}</h3>
+        <div class="cv-card cv-pad">
+            <div class="cv-flex cv-gap-2" style="margin-bottom:16px">
+                <svg style="width:16px;height:16px;color:#9ca3af;flex-shrink:0" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path d="M5.127 3.502 5.25 3.5h9.5c.041 0 .082 0 .123.002A2.251 2.251 0 0 0 12.75 2h-5.5a2.25 2.25 0 0 0-2.123 1.502ZM1 10.25A2.25 2.25 0 0 1 3.25 8h13.5A2.25 2.25 0 0 1 19 10.25v5.5A2.25 2.25 0 0 1 16.75 18H3.25A2.25 2.25 0 0 1 1 15.75v-5.5ZM3.25 6.5c-.04 0-.082 0-.123.002A2.25 2.25 0 0 1 5.25 5h9.5c.98 0 1.814.627 2.123 1.502a3.819 3.819 0 0 0-.123-.002H3.25Z"/></svg>
+                <h3 class="cv-section-title">{{ __('By List') }}</h3>
             </div>
-            <div class="space-y-3">
+            <div style="display:flex;flex-direction:column;gap:12px">
                 @foreach($audienceStats as $stat)
                     @php
                         $group = \JanDev\EmailSystem\Models\EmailAudienceGroup::find($stat->email_audience_group_id);
@@ -244,29 +285,29 @@
                         $listFailed = (int) ($stat->failed_count ?? 0);
                         $listClickRate = $listSent > 0 ? round(($listClicked / $listSent) * 100, 1) : 0;
                     @endphp
-                    <div class="rounded-lg border border-gray-100 dark:border-gray-800 p-4">
-                        <div class="flex items-center justify-between mb-3">
-                            <div class="flex items-center gap-2">
-                                <div class="w-2 h-2 rounded-full bg-emerald-500"></div>
-                                <span class="text-sm font-semibold text-gray-900 dark:text-white">{{ $group?->name ?? __('Unknown') }}</span>
+                    <div class="cv-list-item">
+                        <div class="cv-flex cv-between" style="margin-bottom:10px">
+                            <div class="cv-flex cv-gap-2">
+                                <span class="cv-dot" style="background:#10b981"></span>
+                                <span class="cv-list-name">{{ $group?->name ?? __('Unknown') }}</span>
                             </div>
-                            <span class="text-xs text-gray-400">{{ \Carbon\Carbon::parse($stat->last_sent)->format('M j, Y') }}</span>
+                            <span class="cv-list-date">{{ \Carbon\Carbon::parse($stat->last_sent)->format('M j, Y') }}</span>
                         </div>
-                        <div class="flex items-center gap-3 text-sm">
-                            <span class="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-semibold">
-                                <x-heroicon-m-check class="w-3.5 h-3.5" />
+                        <div class="cv-flex cv-gap-3">
+                            <span class="cv-list-stat" style="color:#047857">
+                                <svg style="width:14px;height:14px;flex-shrink:0" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 0 1 .143 1.052l-8 10.5a.75.75 0 0 1-1.127.075l-4.5-4.5a.75.75 0 0 1 1.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 0 1 1.05-.143Z" clip-rule="evenodd"/></svg>
                                 {{ number_format($listSent) }} {{ __('sent') }}
                             </span>
                             @if($listClicked > 0)
-                                <span class="inline-flex items-center gap-1 text-purple-600 dark:text-purple-400 font-semibold">
-                                    <x-heroicon-m-cursor-arrow-rays class="w-3.5 h-3.5" />
+                                <span class="cv-list-stat" style="color:#7c3aed">
+                                    <svg style="width:14px;height:14px;flex-shrink:0" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path d="M6.111 11.89A5.5 5.5 0 1 1 15.501 8 .75.75 0 0 0 17 8a7 7 0 1 0-11.95 4.95.75.75 0 0 0 1.06-1.06Zm2.121-5.658a2.5 2.5 0 0 0 0 3.536.75.75 0 1 1-1.06 1.06A4 4 0 1 1 14 8a.75.75 0 0 1-1.5 0 2.5 2.5 0 0 0-4.268-1.768Zm2.534 1.279a.75.75 0 0 0-1.37.364l-.492 6.861a.75.75 0 0 0 1.204.65l1.043-.723.985 1.678a.75.75 0 1 0 1.292-.758l-.985-1.677 1.18-.406a.75.75 0 0 0-.2-1.441l-2.657-.308Z"/></svg>
                                     {{ number_format($listClicked) }} {{ __('clicked') }}
-                                    <span class="text-gray-400 font-normal">({{ $listClickRate }}%)</span>
+                                    <span style="color:#9ca3af;font-weight:400">({{ $listClickRate }}%)</span>
                                 </span>
                             @endif
                             @if($listFailed > 0)
-                                <span class="inline-flex items-center gap-1 text-red-500 dark:text-red-400 font-semibold">
-                                    <x-heroicon-m-x-mark class="w-3.5 h-3.5" />
+                                <span class="cv-list-stat" style="color:#dc2626">
+                                    <svg style="width:14px;height:14px;flex-shrink:0" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z"/></svg>
                                     {{ number_format($listFailed) }} {{ __('failed') }}
                                 </span>
                             @endif
