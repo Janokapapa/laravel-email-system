@@ -43,6 +43,10 @@ class CampaignResource extends Resource
         $tableBuilder = $table
             ->defaultSort('created_at', 'desc')
             ->poll('5s')
+            ->recordUrl(fn (Campaign $record): string => $record->status === 'new'
+                ? static::getUrl('edit', ['record' => $record])
+                : static::getUrl('view', ['record' => $record])
+            )
             ->columns([
                 TextColumn::make('name')
                     ->label(__('Campaign Name'))
