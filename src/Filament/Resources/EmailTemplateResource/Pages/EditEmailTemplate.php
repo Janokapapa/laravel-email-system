@@ -92,6 +92,9 @@ class EditEmailTemplate extends EditRecord
                 ];
             })
             ->action(function (array $data) {
+                // Auto-save template before sending test
+                $this->save(false);
+
                 $senderName   = $data['senderName'] ?? null;
                 $senderConfig = $senderName ? SenderResolver::get($senderName) : null;
                 $senderAddress = $senderConfig['from_address'] ?? config('email-system.from.address');
@@ -192,6 +195,9 @@ class EditEmailTemplate extends EditRecord
                     ->searchable(),
             ])
             ->action(function (array $data) {
+                // Auto-save template before sending
+                $this->save(false);
+
                 $audienceGroup = EmailAudienceGroup::findOrFail($data['audienceGroupId']);
                 $skipYahoo     = $data['skipYahoo'] ?? false;
                 $senderName    = $data['senderName'] ?? null;
