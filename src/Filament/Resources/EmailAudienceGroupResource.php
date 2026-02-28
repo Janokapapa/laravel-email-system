@@ -19,7 +19,7 @@ class EmailAudienceGroupResource extends Resource
 
     public static function getNavigationLabel(): string
     {
-        return __('Email Audiences');
+        return __('Email Lists');
     }
 
     public static function getNavigationGroup(): ?string
@@ -29,12 +29,12 @@ class EmailAudienceGroupResource extends Resource
 
     public static function getModelLabel(): string
     {
-        return __('Email Audience');
+        return __('Email List');
     }
 
     public static function getPluralModelLabel(): string
     {
-        return __('Email Audiences');
+        return __('Email Lists');
     }
 
     public static function form(Schema $schema): Schema

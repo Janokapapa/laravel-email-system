@@ -51,7 +51,7 @@ class ListEmailAudienceGroups extends ListRecords
                     if ($audienceUsers->isEmpty()) {
                         Notification::make()
                             ->title(__('Email not found'))
-                            ->body(__('The email :email is not in any audience.', ['email' => $email]))
+                            ->body(__('The email :email is not in any list.', ['email' => $email]))
                             ->warning()
                             ->send();
                         return;
@@ -68,22 +68,22 @@ class ListEmailAudienceGroups extends ListRecords
                     })->join("\n");
 
                     Notification::make()
-                        ->title(__('Found in :count audience(s)', ['count' => $audienceUsers->count()]))
+                        ->title(__('Found in :count list(s)', ['count' => $audienceUsers->count()]))
                         ->body($groups)
                         ->success()
                         ->persistent()
                         ->send();
                 })
-                ->modalHeading(__('Search email in audiences'))
+                ->modalHeading(__('Search email in lists'))
                 ->modalSubmitActionLabel(__('Search')),
 
             Action::make('merge')
-                ->label(__('Merge audiences'))
+                ->label(__('Merge lists'))
                 ->icon('heroicon-o-arrows-pointing-in')
                 ->color('warning')
                 ->form([
                     CheckboxList::make('source_ids')
-                        ->label(__('Select audiences to merge (source)'))
+                        ->label(__('Select lists to merge (source)'))
                         ->options(EmailAudienceGroup::orderBy('name')->pluck('name', 'id'))
                         ->required()
                         ->columns(2)
@@ -104,8 +104,8 @@ class ListEmailAudienceGroups extends ListRecords
                     Select::make('delete_sources')
                         ->label(__('After merge'))
                         ->options([
-                            'keep' => __('Keep source audiences'),
-                            'delete' => __('Delete empty source audiences'),
+                            'keep' => __('Keep source lists'),
+                            'delete' => __('Delete empty source lists'),
                         ])
                         ->default('keep')
                         ->required(),
@@ -142,7 +142,7 @@ class ListEmailAudienceGroups extends ListRecords
                         ->info()
                         ->send();
                 })
-                ->modalHeading(__('Merge audiences'))
+                ->modalHeading(__('Merge lists'))
                 ->modalSubmitActionLabel(__('Merge'))
                 ->requiresConfirmation(),
         ];

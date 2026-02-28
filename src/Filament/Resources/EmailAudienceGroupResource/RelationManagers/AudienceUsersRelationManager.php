@@ -158,13 +158,13 @@ class AudienceUsersRelationManager extends RelationManager
                             }
 
                             fclose($handle);
-                        }, __('filtered_audience_users.csv'), [
+                        }, __('filtered_subscribers.csv'), [
                             'Content-Type' => 'text/csv',
                             'Content-Disposition' => 'attachment; filename="filtered_audience_users.csv"',
                         ]);
                     })
                     ->icon('heroicon-o-arrow-down-tray')
-                    ->requiresConfirmation(__('Do you want to download the filtered audience users as CSV?')),
+                    ->requiresConfirmation(__('Download filtered subscribers as CSV?')),
 
                 Action::make('addUser')
                     ->label(__('Add User'))
@@ -194,7 +194,7 @@ class AudienceUsersRelationManager extends RelationManager
                         if ($exists) {
                             Notification::make()
                                 ->title(__('User Already Exists'))
-                                ->body(__('This user is already in the audience group.'))
+                                ->body(__('This user is already in this list.'))
                                 ->warning()
                                 ->send();
                             return;

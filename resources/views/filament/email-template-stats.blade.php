@@ -85,7 +85,7 @@
     {{-- By audience breakdown --}}
     @if(isset($stats) && $stats->count() > 0)
         <div class="border-t border-gray-200 dark:border-gray-700 pt-4">
-            <h4 class="text-sm font-semibold text-gray-900 dark:text-white mb-3">{{ __('By audience') }}</h4>
+            <h4 class="text-sm font-semibold text-gray-900 dark:text-white mb-3">{{ __('By list') }}</h4>
             <div class="space-y-2">
                 @foreach($stats as $stat)
                     @php

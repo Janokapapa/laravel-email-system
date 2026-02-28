@@ -161,10 +161,10 @@ class EditEmailTemplate extends EditRecord
             ->toArray();
 
         return Action::make('sendEmail')
-            ->label(__('Send Mail to Audience'))
+            ->label(__('Send to List'))
             ->form([
                 Select::make('audienceGroupId')
-                    ->label(__('Select Audience Group'))
+                    ->label(__('Select Email List'))
                     ->options(function () use ($sentGroupIds) {
                         return EmailAudienceGroup::orderBy('name')
                             ->get()
