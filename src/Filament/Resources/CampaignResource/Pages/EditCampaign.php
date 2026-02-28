@@ -348,30 +348,8 @@ class EditCampaign extends EditRecord
                 ->icon('heroicon-o-paper-airplane')
                 ->schema([
                     Placeholder::make('send_summary')
-                        ->label(__('Campaign Summary'))
-                        ->content(function (): HtmlString {
-                            $record = $this->record;
-                            $groupIds = $record->audience_group_ids ?? [];
-
-                            $listItems = collect($groupIds)->map(function ($id) {
-                                $group = EmailAudienceGroup::find($id);
-                                if (!$group) return __('Unknown (deleted)');
-                                $active = $group->audienceUsers()
-                                    ->where('is_active', true)
-                                    ->where('bounced', false)
-                                    ->count();
-                                return $group->name . ' (' . number_format($active) . ' ' . __('active') . ')';
-                            })->join(', ');
-
-                            $html = '<div class="space-y-2 text-sm">';
-                            $html .= '<div><strong>' . __('Campaign') . ':</strong> ' . e($record->name) . '</div>';
-                            $html .= '<div><strong>' . __('Sender') . ':</strong> ' . e($record->sender_name) . ' &lt;' . e($record->sender_address) . '&gt;</div>';
-                            $html .= '<div><strong>' . __('Subject') . ':</strong> ' . e($record->subject) . '</div>';
-                            $html .= '<div><strong>' . __('Lists') . ':</strong> ' . e($listItems ?: '—') . '</div>';
-                            $html .= '</div>';
-
-                            return new HtmlString($html);
-                        })
+                        ->label('')
+                        ->content(fn (Get $get): HtmlString => \JanDev\EmailSystem\Support\CampaignSummaryBuilder::build($get))
                         ->columnSpanFull(),
                 ]),
         ];

@@ -287,45 +287,8 @@ class CreateCampaign extends CreateRecord
                 ->icon('heroicon-o-paper-airplane')
                 ->schema([
                     Placeholder::make('send_summary')
-                        ->label(__('Campaign Summary'))
-                        ->content(function (Get $get): HtmlString {
-                            $name = $get('name') ?: '—';
-                            $senderName = $get('sender_name') ?: '—';
-                            $senderAddress = $get('sender_address') ?: '—';
-                            $subject = $get('subject') ?: '—';
-                            $groupIds = $get('audience_group_ids') ?? [];
-                            $skipProviders = $get('skip_providers') ?? [];
-
-                            $providerLabels = [
-                                'yahoo' => 'Yahoo', 'microsoft' => 'Microsoft',
-                                'gmail' => 'Gmail', 'icloud' => 'iCloud',
-                            ];
-                            $skippedNames = collect($skipProviders)
-                                ->map(fn ($p) => $providerLabels[$p] ?? $p)
-                                ->join(', ');
-
-                            $listNames = collect($groupIds)->map(function ($id) {
-                                $group = EmailAudienceGroup::find($id);
-                                if (!$group) return __('Unknown (deleted)');
-                                $active = $group->audienceUsers()
-                                    ->where('is_active', true)
-                                    ->where('bounced', false)
-                                    ->count();
-                                return $group->name . ' (' . number_format($active) . ')';
-                            })->join(', ');
-
-                            $html = '<div class="space-y-2 text-sm">';
-                            $html .= '<div><strong>' . __('Campaign') . ':</strong> ' . e($name) . '</div>';
-                            $html .= '<div><strong>' . __('Sender') . ':</strong> ' . e($senderName) . ' &lt;' . e($senderAddress) . '&gt;</div>';
-                            $html .= '<div><strong>' . __('Subject') . ':</strong> ' . e($subject) . '</div>';
-                            $html .= '<div><strong>' . __('Lists') . ':</strong> ' . e($listNames ?: '—') . '</div>';
-                            if (!empty($skipProviders)) {
-                                $html .= '<div><strong>' . __('Skip Providers') . ':</strong> ' . e($skippedNames) . '</div>';
-                            }
-                            $html .= '</div>';
-
-                            return new HtmlString($html);
-                        })
+                        ->label('')
+                        ->content(fn (Get $get): HtmlString => \JanDev\EmailSystem\Support\CampaignSummaryBuilder::build($get))
                         ->columnSpanFull(),
                 ]),
         ];
