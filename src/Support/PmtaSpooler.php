@@ -61,7 +61,7 @@ class PmtaSpooler
      * Returns the path to the written file.
      * Idempotent: if file already exists, returns the path without rewriting.
      */
-    public function writeEml(EmailLog $emailLog): string
+    public function writeEml(EmailLog $emailLog, ?string $unsubscribeUrl = null): string
     {
         $this->ensureDirs();
 
@@ -84,6 +84,11 @@ class PmtaSpooler
 
         $rawHtml = (string) $emailLog->message;
 
+        // Replace unsubscribe placeholder links in the HTML
+        if ($unsubscribeUrl) {
+            $rawHtml = $this->replaceUnsubscribeLinks($rawHtml, $unsubscribeUrl);
+        }
+
         // Wrap in full HTML document if the template is just a fragment (no <html> tag).
         // Sets margin/padding to 0 so email clients don't add a white border around the content.
         if (stripos($rawHtml, '<html') === false) {
@@ -100,6 +105,12 @@ class PmtaSpooler
         $htmlBody = quoted_printable_encode($rawHtml);
         $textBody = quoted_printable_encode(trim(strip_tags((string) $emailLog->message)));
 
+        // List-Unsubscribe headers (RFC 2369 / RFC 8058) — improves deliverability
+        $unsubHeaders = '';
+        if ($unsubscribeUrl) {
+            $unsubHeaders = "List-Unsubscribe: <{$unsubscribeUrl}>\nList-Unsubscribe-Post: List-Unsubscribe=One-Click\n";
+        }
+
         $eml = <<<EOT
 x-sender: {$fromAddress}
 x-receiver: {$emailLog->recipient}
@@ -111,7 +122,7 @@ Reply-To: <{$replyTo}>
 Subject: {$subject}
 Message-ID: {$messageId}
 X-Priority: 3
-MIME-Version: 1.0
+{$unsubHeaders}MIME-Version: 1.0
 Content-Type: multipart/alternative; boundary="{$boundary}"
 
 --{$boundary}
@@ -157,5 +168,31 @@ EOT;
         Log::channel('queue')->info("PmtaSpooler: spooled {$final}");
 
         return $final;
+    }
+
+    /**
+     * Replace unsubscribe placeholder links in the HTML.
+     *
+     * Handles: href="#" in anchors containing "unsubscribe" (case-insensitive),
+     * and the explicit {{unsubscribe_url}} placeholder.
+     */
+    protected function replaceUnsubscribeLinks(string $html, string $url): string
+    {
+        // Replace {{unsubscribe_url}} placeholder
+        $html = str_replace('{{unsubscribe_url}}', $url, $html);
+
+        // Replace href="#" in anchor tags that contain "unsubscribe" text
+        $html = preg_replace_callback(
+            '/<a\b([^>]*?)href\s*=\s*"#"([^>]*?)>(.*?)<\/a>/is',
+            function ($match) use ($url) {
+                if (stripos($match[3], 'unsubscribe') !== false || stripos($match[3], 'leiratkoz') !== false) {
+                    return '<a' . $match[1] . 'href="' . htmlspecialchars($url) . '"' . $match[2] . '>' . $match[3] . '</a>';
+                }
+                return $match[0];
+            },
+            $html
+        );
+
+        return $html;
     }
 }

@@ -88,8 +88,10 @@ class SendQueuedEmail implements ShouldQueue
 
         $serverName = $resolvedServer['name'] ?? null;
 
+        $unsubscribeUrl = $this->generateUnsubscribeUrl();
+
         $spooler = new PmtaSpooler($senderConfig, null, $resolvedServer, $serverName);
-        $spooler->writeEml($this->emailLog);
+        $spooler->writeEml($this->emailLog, $unsubscribeUrl);
 
         $this->emailLog->update([
             'status' => 'spooled',
@@ -183,25 +185,27 @@ class SendQueuedEmail implements ShouldQueue
 
     protected function generateUnsubscribeUrl(): ?string
     {
-        $audienceUsers = AudienceUser::where('email', $this->emailLog->recipient)
-            ->where('is_active', true)
-            ->lockForUpdate()
-            ->get();
+        return DB::transaction(function () {
+            $audienceUsers = AudienceUser::where('email', $this->emailLog->recipient)
+                ->where('is_active', true)
+                ->lockForUpdate()
+                ->get();
 
-        if ($audienceUsers->isEmpty()) {
-            return null;
-        }
+            if ($audienceUsers->isEmpty()) {
+                return null;
+            }
 
-        $token = bin2hex(random_bytes(16));
+            $token = bin2hex(random_bytes(16));
 
-        foreach ($audienceUsers as $audienceUser) {
-            $audienceUser->update(['unsubscribe_token' => $token]);
-        }
+            foreach ($audienceUsers as $audienceUser) {
+                $audienceUser->update(['unsubscribe_token' => $token]);
+            }
 
-        return route('email-system.unsubscribe', [
-            'email' => $this->emailLog->recipient,
-            'token' => $token,
-        ]);
+            return route('email-system.unsubscribe', [
+                'email' => $this->emailLog->recipient,
+                'token' => $token,
+            ]);
+        });
     }
 
     public function failed(\Throwable $exception): void
