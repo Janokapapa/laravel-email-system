@@ -89,6 +89,16 @@ class PmtaSpooler
             $rawHtml = $this->replaceUnsubscribeLinks($rawHtml, $unsubscribeUrl);
         }
 
+        // Append unsubscribe footer if URL is available and no unsubscribe link exists in the HTML
+        if ($unsubscribeUrl && stripos($rawHtml, 'unsubscribe') === false) {
+            $escapedUrl = htmlspecialchars($unsubscribeUrl);
+            $rawHtml .= '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top:0;">'
+                . '<tr><td align="center" style="padding:20px 40px;background:rgba(0,0,0,0.3);">'
+                . '<p style="color:#8a8ab0;font-size:11px;margin:0;">'
+                . '<a href="' . $escapedUrl . '" style="color:#e8c94a;text-decoration:underline;">Unsubscribe</a>'
+                . '</p></td></tr></table>';
+        }
+
         // Wrap in full HTML document if the template is just a fragment (no <html> tag).
         // Sets margin/padding to 0 so email clients don't add a white border around the content.
         if (stripos($rawHtml, '<html') === false) {
