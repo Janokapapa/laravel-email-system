@@ -76,47 +76,13 @@ class PmtaSpooler
             : ($this->serverConfig['virtual_mta'] ?? 'all');
 
         $fromDomain = substr(strrchr($fromAddress, '@'), 1) ?: 'localhost';
-        $boundary = 'b1_' . md5(uniqid((string) microtime(), true));
         $messageId = '<' . md5(uniqid()) . '@' . $fromDomain . '>';
         $date = date('r');
 
         $subject = '=?UTF-8?B?' . base64_encode($emailLog->subject) . '?=';
         $fromHeader = $fromName ? "{$fromName} <{$fromAddress}>" : $fromAddress;
 
-        $rawHtml = (string) $emailLog->message;
-
-        // Replace unsubscribe placeholders in the HTML
-        if ($unsubscribeUrl) {
-            $rawHtml = self::replaceUnsubscribeLinks($rawHtml, $unsubscribeUrl);
-        }
-
-        // Rewrite links for click tracking (if enabled for this sender)
-        if ($this->senderConfig['track_clicks'] ?? true) {
-            $rawHtml = self::rewriteLinksForTracking($rawHtml, $emailLog->id, $unsubscribeUrl);
-        }
-
-        // Wrap in full HTML document if the template is just a fragment (no <html> tag).
-        // Sets margin/padding to 0 so email clients don't add a white border around the content.
-        if (stripos($rawHtml, '<html') === false) {
-            // Extract background-color from the outermost element to apply on <body>
-            $bodyBg = '';
-            if (preg_match('/background(?:-color)?\s*:\s*(#[0-9a-fA-F]{3,8}|rgba?\([^)]+\)|[a-z]+)/i', $rawHtml, $m)) {
-                $bodyBg = 'background-color:' . $m[1] . ';';
-            }
-
-            $rawHtml = '<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>'
-                . '<body style="margin:0;padding:0;' . $bodyBg . '">' . $rawHtml . '</body></html>';
-        }
-
-        // Inject open tracking pixel before </body> if enabled for this sender
-        if ($this->senderConfig['track_opens'] ?? false) {
-            $pixelUrl = URL::signedRoute('email-system.track.open', ['log_id' => $emailLog->id]);
-            $pixel = '<img src="' . htmlspecialchars($pixelUrl) . '" alt="" width="1" height="1" style="display:none;" />';
-            $rawHtml = str_ireplace('</body>', $pixel . '</body>', $rawHtml);
-        }
-
-        $htmlBody = quoted_printable_encode($rawHtml);
-        $textBody = quoted_printable_encode(trim(strip_tags((string) $emailLog->message)));
+        $isPlainText = ($emailLog->content_type ?? 'html') === 'text';
 
         // List-Unsubscribe headers (RFC 2369 / RFC 8058) — improves deliverability
         $unsubHeaders = '';
@@ -124,7 +90,72 @@ class PmtaSpooler
             $unsubHeaders = "List-Unsubscribe: <{$unsubscribeUrl}>\nList-Unsubscribe-Post: List-Unsubscribe=One-Click\n";
         }
 
-        $eml = <<<EOT
+        if ($isPlainText) {
+            // Plain text mode: single text/plain part, no HTML wrapping
+            $rawText = (string) $emailLog->message;
+
+            // Replace unsubscribe placeholders as plain text URLs
+            if ($unsubscribeUrl) {
+                $rawText = preg_replace('/\{\{unsubscribe=(.+?)\}\}/', '$1: ' . $unsubscribeUrl, $rawText);
+                $rawText = str_replace('{{unsubscribe_url}}', $unsubscribeUrl, $rawText);
+            }
+
+            $textBody = quoted_printable_encode($rawText);
+
+            $eml = <<<EOT
+x-sender: {$fromAddress}
+x-receiver: {$emailLog->recipient}
+x-virtual-mta: {$virtualMta}
+Date: {$date}
+To: <{$emailLog->recipient}>
+From: {$fromHeader}
+Reply-To: <{$replyTo}>
+Subject: {$subject}
+Message-ID: {$messageId}
+X-Priority: 3
+{$unsubHeaders}MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+
+{$textBody}
+EOT;
+        } else {
+            // HTML mode: multipart/alternative with text/plain + text/html
+            $boundary = 'b1_' . md5(uniqid((string) microtime(), true));
+            $rawHtml = (string) $emailLog->message;
+
+            // Replace unsubscribe placeholders in the HTML
+            if ($unsubscribeUrl) {
+                $rawHtml = self::replaceUnsubscribeLinks($rawHtml, $unsubscribeUrl);
+            }
+
+            // Rewrite links for click tracking (if enabled for this sender)
+            if ($this->senderConfig['track_clicks'] ?? true) {
+                $rawHtml = self::rewriteLinksForTracking($rawHtml, $emailLog->id, $unsubscribeUrl);
+            }
+
+            // Wrap in full HTML document if the template is just a fragment (no <html> tag).
+            if (stripos($rawHtml, '<html') === false) {
+                $bodyBg = '';
+                if (preg_match('/background(?:-color)?\s*:\s*(#[0-9a-fA-F]{3,8}|rgba?\([^)]+\)|[a-z]+)/i', $rawHtml, $m)) {
+                    $bodyBg = 'background-color:' . $m[1] . ';';
+                }
+
+                $rawHtml = '<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>'
+                    . '<body style="margin:0;padding:0;' . $bodyBg . '">' . $rawHtml . '</body></html>';
+            }
+
+            // Inject open tracking pixel before </body> if enabled for this sender
+            if ($this->senderConfig['track_opens'] ?? false) {
+                $pixelUrl = URL::signedRoute('email-system.track.open', ['log_id' => $emailLog->id]);
+                $pixel = '<img src="' . htmlspecialchars($pixelUrl) . '" alt="" width="1" height="1" style="display:none;" />';
+                $rawHtml = str_ireplace('</body>', $pixel . '</body>', $rawHtml);
+            }
+
+            $htmlBody = quoted_printable_encode($rawHtml);
+            $textBody = quoted_printable_encode(trim(strip_tags((string) $emailLog->message)));
+
+            $eml = <<<EOT
 x-sender: {$fromAddress}
 x-receiver: {$emailLog->recipient}
 x-virtual-mta: {$virtualMta}
@@ -152,6 +183,7 @@ Content-Transfer-Encoding: quoted-printable
 
 --{$boundary}--
 EOT;
+        }
 
         $baseName = 'email_' . $emailLog->id;
 

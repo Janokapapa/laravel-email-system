@@ -60,6 +60,7 @@ class DispatchCampaign implements ShouldQueue
                 campaignBody:       $campaign->body,
                 senderAddress:      $campaign->sender_address,
                 campaignVariations: $campaign->variations ?? [],
+                contentType:        $campaign->content_type ?? 'html',
             );
         }
 

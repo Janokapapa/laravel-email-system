@@ -66,18 +66,38 @@ class EditCampaign extends EditRecord
                 ->modalDescription(function (): string {
                     $groupIds = $this->record->audience_group_ids ?? [];
                     $total = 0;
+                    $unverified = 0;
+                    $invalid = 0;
                     foreach ($groupIds as $id) {
                         $group = EmailAudienceGroup::find($id);
-                        if ($group) {
-                            $total += $group->audienceUsers()
-                                ->where('is_active', true)
-                                ->where('bounced', false)
-                                ->count();
-                        }
+                        if (!$group) continue;
+                        $base = $group->audienceUsers()
+                            ->where('is_active', true)
+                            ->where('bounced', false);
+                        $total += (clone $base)->count();
+                        $unverified += (clone $base)->where(function ($q) {
+                            $q->whereNull('zerobounce_status')->orWhere('zerobounce_status', 'unverified');
+                        })->count();
+                        $invalid += (clone $base)->where('zerobounce_status', 'invalid')->count();
                     }
-                    return __('This will send to approximately :count recipients. Continue?', [
-                        'count' => number_format($total),
+
+                    $msg = __('This will send to approximately :count recipients.', [
+                        'count' => number_format($total - $invalid),
                     ]);
+
+                    if ($invalid > 0) {
+                        $msg .= "\n" . __(':count invalid (ZeroBounce) emails will be skipped.', [
+                            'count' => number_format($invalid),
+                        ]);
+                    }
+                    if ($unverified > 0) {
+                        $msg .= "\n⚠️ " . __(':count emails are not yet verified by ZeroBounce.', [
+                            'count' => number_format($unverified),
+                        ]);
+                    }
+
+                    $msg .= "\n\n" . __('Continue?');
+                    return $msg;
                 })
                 ->action(function (): void {
                     $this->save();

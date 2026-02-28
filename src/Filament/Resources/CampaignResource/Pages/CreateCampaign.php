@@ -391,7 +391,7 @@ class CreateCampaign extends CreateRecord
 
     protected function getRedirectUrl(): string
     {
-        return $this->getResource()::getUrl('index');
+        return $this->getResource()::getUrl('edit', ['record' => $this->record]);
     }
 
     // ─── Send Test Email action (called via header action on edit, or separately) ─
@@ -413,13 +413,14 @@ class CreateCampaign extends CreateRecord
         $senderAddress = $state['sender_address'] ?? ($senderConfig['from_address'] ?? config('email-system.from.address'));
 
         $emailLog = EmailLog::create([
-            'campaign_id' => $this->draftCampaignId,
-            'recipient'   => $testEmail,
-            'subject'     => '[TEST] ' . ($state['subject'] ?? 'Campaign Preview'),
-            'message'     => $state['body'] ?? '',
-            'sender'      => $senderAddress,
-            'sender_name' => $senderName,
-            'status'      => 'queued',
+            'campaign_id'  => $this->draftCampaignId,
+            'recipient'    => $testEmail,
+            'subject'      => '[TEST] ' . ($state['subject'] ?? 'Campaign Preview'),
+            'message'      => $state['body'] ?? '',
+            'sender'       => $senderAddress,
+            'sender_name'  => $senderName,
+            'content_type' => $state['content_type'] ?? 'html',
+            'status'       => 'queued',
         ]);
 
         SendQueuedEmail::dispatch($emailLog);

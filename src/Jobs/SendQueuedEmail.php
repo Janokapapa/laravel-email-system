@@ -107,19 +107,26 @@ class SendQueuedEmail implements ShouldQueue
     {
         DB::transaction(function () use ($senderConfig) {
             $unsubscribeUrl = $this->generateUnsubscribeUrl();
+            $isPlainText = ($this->emailLog->content_type ?? 'html') === 'text';
 
             // Process message in-memory (not persisted)
             $originalMessage = $this->emailLog->message;
             $processed = (string) $originalMessage;
 
-            // Replace unsubscribe placeholders
-            if ($unsubscribeUrl) {
-                $processed = PmtaSpooler::replaceUnsubscribeLinks($processed, $unsubscribeUrl);
-            }
-
-            // Rewrite links for click tracking
-            if ($senderConfig['track_clicks'] ?? true) {
-                $processed = PmtaSpooler::rewriteLinksForTracking($processed, $this->emailLog->id, $unsubscribeUrl);
+            if ($isPlainText) {
+                // Plain text: replace unsubscribe placeholders as URLs
+                if ($unsubscribeUrl) {
+                    $processed = preg_replace('/\{\{unsubscribe=(.+?)\}\}/', '$1: ' . $unsubscribeUrl, $processed);
+                    $processed = str_replace('{{unsubscribe_url}}', $unsubscribeUrl, $processed);
+                }
+            } else {
+                // HTML: full processing
+                if ($unsubscribeUrl) {
+                    $processed = PmtaSpooler::replaceUnsubscribeLinks($processed, $unsubscribeUrl);
+                }
+                if ($senderConfig['track_clicks'] ?? true) {
+                    $processed = PmtaSpooler::rewriteLinksForTracking($processed, $this->emailLog->id, $unsubscribeUrl);
+                }
             }
 
             $this->emailLog->message = $processed;
@@ -152,6 +159,7 @@ class SendQueuedEmail implements ShouldQueue
     {
         DB::transaction(function () use ($senderConfig) {
             $unsubscribeUrl = $this->generateUnsubscribeUrl();
+            $isPlainText = ($this->emailLog->content_type ?? 'html') === 'text';
 
             $mgClient = Mailgun::create(
                 $senderConfig['mailgun_secret'] ?? config('email-system.mailgun.secret'),
@@ -160,42 +168,57 @@ class SendQueuedEmail implements ShouldQueue
 
             $domain = $senderConfig['mailgun_domain'] ?? config('email-system.mailgun.domain');
 
-            // Process message content before rendering
             $messageContent = (string) $this->emailLog->message;
-
-            // Replace unsubscribe placeholders
-            if ($unsubscribeUrl) {
-                $messageContent = PmtaSpooler::replaceUnsubscribeLinks($messageContent, $unsubscribeUrl);
-            }
-
-            // Rewrite links for click tracking (if enabled)
-            if ($senderConfig['track_clicks'] ?? true) {
-                $messageContent = PmtaSpooler::rewriteLinksForTracking(
-                    $messageContent,
-                    $this->emailLog->id,
-                    $unsubscribeUrl
-                );
-            }
-
-            $htmlContent = view('email-system::newsletter', [
-                'emailLog' => $this->emailLog,
-                'subject' => $this->emailLog->subject,
-                'messageContent' => $messageContent,
-                'unsubscribeUrl' => $unsubscribeUrl,
-                'trackOpens' => $senderConfig['track_opens'] ?? false,
-            ])->render();
 
             $fromAddress = $senderConfig['from_address'] ?? config('email-system.from.address');
             $fromName = $senderConfig['from_name'] ?? config('email-system.from.name');
             $replyTo = $senderConfig['reply_to'] ?? config('email-system.reply_to', $fromAddress);
 
-            $response = $mgClient->messages()->send($domain, [
-                'from' => "{$fromName} <{$fromAddress}>",
-                'to' => $this->emailLog->recipient,
-                'subject' => $this->emailLog->subject,
-                'html' => $htmlContent,
-                'h:Reply-To' => $replyTo,
-            ]);
+            if ($isPlainText) {
+                // Plain text: replace unsubscribe placeholders as URLs
+                if ($unsubscribeUrl) {
+                    $messageContent = preg_replace('/\{\{unsubscribe=(.+?)\}\}/', '$1: ' . $unsubscribeUrl, $messageContent);
+                    $messageContent = str_replace('{{unsubscribe_url}}', $unsubscribeUrl, $messageContent);
+                }
+
+                $params = [
+                    'from' => "{$fromName} <{$fromAddress}>",
+                    'to' => $this->emailLog->recipient,
+                    'subject' => $this->emailLog->subject,
+                    'text' => $messageContent,
+                    'h:Reply-To' => $replyTo,
+                ];
+            } else {
+                // HTML: full processing with layout
+                if ($unsubscribeUrl) {
+                    $messageContent = PmtaSpooler::replaceUnsubscribeLinks($messageContent, $unsubscribeUrl);
+                }
+                if ($senderConfig['track_clicks'] ?? true) {
+                    $messageContent = PmtaSpooler::rewriteLinksForTracking(
+                        $messageContent,
+                        $this->emailLog->id,
+                        $unsubscribeUrl
+                    );
+                }
+
+                $htmlContent = view('email-system::newsletter', [
+                    'emailLog' => $this->emailLog,
+                    'subject' => $this->emailLog->subject,
+                    'messageContent' => $messageContent,
+                    'unsubscribeUrl' => $unsubscribeUrl,
+                    'trackOpens' => $senderConfig['track_opens'] ?? false,
+                ])->render();
+
+                $params = [
+                    'from' => "{$fromName} <{$fromAddress}>",
+                    'to' => $this->emailLog->recipient,
+                    'subject' => $this->emailLog->subject,
+                    'html' => $htmlContent,
+                    'h:Reply-To' => $replyTo,
+                ];
+            }
+
+            $response = $mgClient->messages()->send($domain, $params);
 
             if ($response->getId()) {
                 $messageId = trim($response->getId(), '<>');

@@ -39,13 +39,9 @@ class CampaignResource extends Resource
 
     public static function table(Table $table): Table
     {
-        // Check if any campaigns are currently sending (within last 24h)
-        $hasSending = Campaign::where('status', 'sending')
-            ->where('sent_at', '>=', now()->subHours(24))
-            ->exists();
-
         $tableBuilder = $table
             ->defaultSort('created_at', 'desc')
+            ->poll('5s')
             ->columns([
                 TextColumn::make('name')
                     ->label(__('Campaign Name'))
@@ -112,10 +108,6 @@ class CampaignResource extends Resource
             ->toolbarActions([
                 DeleteBulkAction::make(),
             ]);
-
-        if ($hasSending) {
-            $tableBuilder->poll('5s');
-        }
 
         return $tableBuilder;
     }

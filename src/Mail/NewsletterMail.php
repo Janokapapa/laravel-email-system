@@ -36,6 +36,18 @@ class NewsletterMail extends Mailable
 
     public function content(): Content
     {
+        $isPlainText = ($this->emailLog->content_type ?? 'html') === 'text';
+
+        if ($isPlainText) {
+            return new Content(
+                text: 'email-system::newsletter-text',
+                with: [
+                    'messageContent' => $this->emailLog->message,
+                    'unsubscribeUrl' => $this->unsubscribeUrl,
+                ],
+            );
+        }
+
         return new Content(
             view: 'email-system::newsletter',
             with: [
