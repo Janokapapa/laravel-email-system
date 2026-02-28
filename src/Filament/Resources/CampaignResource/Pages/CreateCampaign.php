@@ -265,7 +265,7 @@ class CreateCampaign extends CreateRecord
                         ->email()
                         ->default(fn () => auth()->user()->email ?? '')
                         ->suffixAction(
-                            \Filament\Forms\Components\Actions\Action::make('send_test')
+                            \Filament\Actions\Action::make('send_test')
                                 ->label(__('Send Test'))
                                 ->icon('heroicon-o-paper-airplane')
                                 ->action(fn () => $this->sendTestEmail())
