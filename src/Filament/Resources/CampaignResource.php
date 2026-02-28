@@ -10,6 +10,7 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
+use Filament\Actions\ViewAction;
 
 class CampaignResource extends Resource
 {
@@ -101,6 +102,8 @@ class CampaignResource extends Resource
             ])
             ->filters([])
             ->recordActions([
+                ViewAction::make()
+                    ->visible(fn (Campaign $record): bool => $record->status !== 'new'),
                 EditAction::make()
                     ->visible(fn (Campaign $record): bool => $record->status === 'new'),
                 DeleteAction::make(),
@@ -123,6 +126,7 @@ class CampaignResource extends Resource
             'index'  => Pages\ListCampaigns::route('/'),
             'create' => Pages\CreateCampaign::route('/create'),
             'edit'   => Pages\EditCampaign::route('/{record}/edit'),
+            'view'   => Pages\ViewCampaign::route('/{record}'),
         ];
     }
 }

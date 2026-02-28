@@ -48,9 +48,9 @@ class EditCampaign extends EditRecord
     {
         parent::mount($record);
 
-        // Redirect non-new campaigns back to list
+        // Redirect non-new campaigns to view page
         if ($this->record->status !== 'new') {
-            $this->redirect($this->getResource()::getUrl('index'));
+            $this->redirect($this->getResource()::getUrl('view', ['record' => $this->record]));
         }
     }
 
