@@ -12,8 +12,10 @@ use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Field;
 use Filament\Forms\Components\Repeater;
-use Filament\Schemas\Components\Section;
+use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
+use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\Utilities\Get;
 use Illuminate\Support\HtmlString;
 use Filament\Tables\Table;
 use Filament\Tables\Columns\TextColumn;
@@ -48,30 +50,39 @@ class EmailTemplateResource extends Resource
 
     public static function form(Schema $schema): Schema
     {
-        $tiny = fn (string $path, string $label, int $height = 600, ?int $maxWidth = null) =>
-        Field::make($path)
-            ->label($label)
-            ->view('email-system::forms.tinymce')
-            ->extraAttributes(['height' => $height, 'maxWidth' => $maxWidth])
-            ->columnSpanFull()
-            ->reactive()
-            ->dehydrated(true)
-            ->dehydrateStateUsing(fn ($state) => $state);
-
-        $placeholderHint = static::buildPlaceholderHint();
-
         return $schema->columns(1)->components([
             TextInput::make('name')
                 ->required()
                 ->label(__('Template Name')),
 
+            Select::make('content_type')
+                ->label(__('Content Type'))
+                ->options([
+                    'html' => __('HTML'),
+                    'text' => __('Plain Text'),
+                ])
+                ->default('html')
+                ->required()
+                ->live(),
+
             TextInput::make('subject')
                 ->required()
                 ->label(__('Subject')),
 
-            $placeholderHint,
+            static::buildPlaceholderHint(),
 
-            $tiny('body', __('Email Body'), 700, 620),
+            Field::make('body')
+                ->label(__('Email Body'))
+                ->view('email-system::forms.tinymce')
+                ->extraAttributes(fn (Get $get) => [
+                    'height' => 700,
+                    'maxWidth' => 620,
+                    'contentType' => $get('content_type') ?? 'html',
+                ])
+                ->columnSpanFull()
+                ->reactive()
+                ->dehydrated(true)
+                ->dehydrateStateUsing(fn ($state) => $state),
 
             Section::make(__('Variations'))
                 ->description(__('Add subject/body variations. The sender will randomly pick one per recipient.'))
@@ -89,7 +100,10 @@ class EmailTemplateResource extends Resource
                             Field::make('body')
                                 ->label(__('Body'))
                                 ->view('email-system::forms.tinymce')
-                                ->extraAttributes(['height' => 400])
+                                ->extraAttributes(fn (Get $get) => [
+                                    'height' => 400,
+                                    'contentType' => $get('../../content_type') ?? 'html',
+                                ])
                                 ->columnSpanFull()
                                 ->dehydrated(true)
                                 ->dehydrateStateUsing(fn ($state) => $state),
@@ -108,24 +122,7 @@ class EmailTemplateResource extends Resource
 
     protected static function buildPlaceholderHint(): Placeholder
     {
-        $tags = ['{{name}}', '{{email}}', '{{unsubscribe=Unsubscribe here}}'];
-
-        if (class_exists(\JanDev\UserManagement\Models\Setting::class)) {
-            $definitions = AudienceUser::getCustomFieldDefinitions();
-            foreach ($definitions as $field) {
-                $slug = $field['slug'] ?? null;
-                if ($slug && preg_match('/^[a-zA-Z0-9_]+$/', $slug)) {
-                    $tags[] = '{{' . $slug . '}}';
-                }
-            }
-        }
-
-        $tagList = implode(', ', array_map(fn ($t) => "<code>{$t}</code>", $tags));
-
-        return Placeholder::make('placeholder_hint')
-            ->label(__('Available Placeholders'))
-            ->content(new HtmlString($tagList))
-            ->columnSpanFull();
+        return \JanDev\EmailSystem\Support\PlaceholderHint::make();
     }
 
     public static function table(Table $table): Table

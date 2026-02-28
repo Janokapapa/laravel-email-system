@@ -14,10 +14,11 @@ use JanDev\EmailSystem\Jobs\DispatchCampaign;
 use Filament\Forms\Components\CheckboxList;
 use Filament\Forms\Components\Field;
 use Filament\Forms\Components\Placeholder;
+use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
-use Filament\Forms\Components\Toggle;
 use Filament\Forms\Components\ViewField;
+use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
 use Filament\Notifications\Notification;
@@ -36,6 +37,45 @@ class CreateCampaign extends CreateRecord
 
     // Holds the draft campaign ID if we saved mid-wizard
     public ?int $draftCampaignId = null;
+    protected int $draftStep = 1;
+
+    public function mount(): void
+    {
+        parent::mount();
+
+        // Resume draft from query parameter or latest unfinished draft
+        $draftId = request()->query('draft');
+        $draft = $draftId
+            ? Campaign::where('id', $draftId)->where('status', 'new')->first()
+            : Campaign::where('status', 'new')
+                ->where('current_step', '<', 5)
+                ->latest()
+                ->first();
+
+        if ($draft) {
+            $this->draftCampaignId = $draft->id;
+            $this->draftStep = max(1, (int) $draft->current_step);
+
+            $this->form->fill([
+                'name'               => $draft->name,
+                'sender_name'        => $draft->sender_name,
+                'sender_display_name' => $draft->sender_display_name,
+                'sender_address'     => $draft->sender_address,
+                'audience_group_ids' => $draft->audience_group_ids ?? [],
+                'skip_providers'     => $draft->skip_providers ?? [],
+                'email_template_id'  => $draft->email_template_id,
+                'content_type'       => $draft->content_type ?? 'html',
+                'subject'            => $draft->subject,
+                'body'               => $draft->body,
+                'variations'         => $draft->variations ?? [],
+            ]);
+        }
+    }
+
+    public function getStartStep(): int
+    {
+        return $this->draftStep;
+    }
 
     public function getTitle(): string
     {
@@ -85,7 +125,7 @@ class CreateCampaign extends CreateRecord
             Step::make(__('Lists'))
                 ->icon('heroicon-o-users')
                 ->schema([
-                    CheckboxList::make('audience_group_ids')
+                    Select::make('audience_group_ids')
                         ->label(__('Email Lists'))
                         ->options(function () {
                             return EmailAudienceGroup::orderBy('name')
@@ -99,13 +139,20 @@ class CreateCampaign extends CreateRecord
                                 });
                         })
                         ->required()
-                        ->searchable()
-                        ->columns(2),
+                        ->multiple()
+                        ->searchable(),
 
-                    Toggle::make('skip_yahoo')
-                        ->label(__('Skip Yahoo/Ymail'))
-                        ->helperText(__('Skip recipients with @yahoo or @ymail addresses'))
-                        ->default(true),
+                    CheckboxList::make('skip_providers')
+                        ->label(__('Skip Providers'))
+                        ->helperText(__('Skip recipients from selected email providers'))
+                        ->options([
+                            'yahoo'     => __('Yahoo (yahoo, ymail, aol, aim, verizon)'),
+                            'microsoft' => __('Microsoft (hotmail, outlook, live, msn)'),
+                            'gmail'     => __('Gmail (gmail, googlemail)'),
+                            'icloud'    => __('iCloud (icloud, me, mac)'),
+                        ])
+                        ->default([])
+                        ->columns(2),
                 ])
                 ->afterValidation(function () {
                     $this->saveStepDraft(2);
@@ -123,13 +170,28 @@ class CreateCampaign extends CreateRecord
                         ->live()
                         ->afterStateUpdated(function (Set $set, ?string $state) {
                             if ($state) {
-                                $template = EmailTemplate::find((int) $state);
+                                $template = EmailTemplate::with('variations')->find((int) $state);
                                 if ($template) {
+                                    $set('content_type', $template->content_type ?? 'html');
                                     $set('subject', $template->subject);
                                     $set('body', $template->body);
+                                    $set('variations', $template->variations->map(fn ($v) => [
+                                        'subject' => $v->subject,
+                                        'body'    => $v->body,
+                                    ])->toArray());
                                 }
                             }
                         }),
+
+                    Select::make('content_type')
+                        ->label(__('Content Type'))
+                        ->options([
+                            'html' => __('HTML'),
+                            'text' => __('Plain Text'),
+                        ])
+                        ->default('html')
+                        ->required()
+                        ->live(),
 
                     TextInput::make('subject')
                         ->label(__('Subject'))
@@ -140,11 +202,47 @@ class CreateCampaign extends CreateRecord
                     Field::make('body')
                         ->label(__('Email Body'))
                         ->view('email-system::forms.tinymce')
-                        ->extraAttributes(['height' => 500])
+                        ->extraAttributes(fn (Get $get) => [
+                            'height' => 500,
+                            'contentType' => $get('content_type') ?? 'html',
+                        ])
                         ->columnSpanFull()
                         ->dehydrated(true)
                         ->dehydrateStateUsing(fn ($state) => $state)
                         ->required(),
+
+                    Section::make(__('Variations'))
+                        ->description(__('Subject/body variations — the sender randomly picks one per recipient.'))
+                        ->collapsible()
+                        ->collapsed()
+                        ->schema([
+                            Repeater::make('variations')
+                                ->label(false)
+                                ->schema([
+                                    TextInput::make('subject')
+                                        ->label(__('Subject'))
+                                        ->required()
+                                        ->columnSpanFull(),
+
+                                    Field::make('body')
+                                        ->label(__('Body'))
+                                        ->view('email-system::forms.tinymce')
+                                        ->extraAttributes(fn (Get $get) => [
+                                            'height' => 400,
+                                            'contentType' => $get('../../content_type') ?? 'html',
+                                        ])
+                                        ->columnSpanFull()
+                                        ->dehydrated(true)
+                                        ->dehydrateStateUsing(fn ($state) => $state),
+                                ])
+                                ->columns(1)
+                                ->reorderable()
+                                ->reorderableWithDragAndDrop()
+                                ->collapsible()
+                                ->itemLabel(fn (array $state): ?string => ($state['subject'] ?? '') !== '' ? __('Variation') . ': ' . $state['subject'] : __('New Variation'))
+                                ->defaultItems(0)
+                                ->addActionLabel(__('Add Variation')),
+                        ]),
                 ])
                 ->afterValidation(function () {
                     $this->saveStepDraft(3);
@@ -183,7 +281,15 @@ class CreateCampaign extends CreateRecord
                             $senderAddress = $get('sender_address') ?: '—';
                             $subject = $get('subject') ?: '—';
                             $groupIds = $get('audience_group_ids') ?? [];
-                            $skipYahoo = $get('skip_yahoo') ? __('Yes') : __('No');
+                            $skipProviders = $get('skip_providers') ?? [];
+
+                            $providerLabels = [
+                                'yahoo' => 'Yahoo', 'microsoft' => 'Microsoft',
+                                'gmail' => 'Gmail', 'icloud' => 'iCloud',
+                            ];
+                            $skippedNames = collect($skipProviders)
+                                ->map(fn ($p) => $providerLabels[$p] ?? $p)
+                                ->join(', ');
 
                             $listNames = collect($groupIds)->map(function ($id) {
                                 $group = EmailAudienceGroup::find($id);
@@ -200,7 +306,9 @@ class CreateCampaign extends CreateRecord
                             $html .= '<div><strong>' . __('Sender') . ':</strong> ' . e($senderName) . ' &lt;' . e($senderAddress) . '&gt;</div>';
                             $html .= '<div><strong>' . __('Subject') . ':</strong> ' . e($subject) . '</div>';
                             $html .= '<div><strong>' . __('Lists') . ':</strong> ' . e($listNames ?: '—') . '</div>';
-                            $html .= '<div><strong>' . __('Skip Yahoo') . ':</strong> ' . $skipYahoo . '</div>';
+                            if (!empty($skipProviders)) {
+                                $html .= '<div><strong>' . __('Skip Providers') . ':</strong> ' . e($skippedNames) . '</div>';
+                            }
                             $html .= '</div>';
 
                             return new HtmlString($html);
@@ -212,24 +320,7 @@ class CreateCampaign extends CreateRecord
 
     protected static function buildPlaceholderHint(): Placeholder
     {
-        $tags = ['{{name}}', '{{email}}', '{{unsubscribe=Unsubscribe here}}'];
-
-        if (class_exists(\JanDev\UserManagement\Models\Setting::class)) {
-            $definitions = AudienceUser::getCustomFieldDefinitions();
-            foreach ($definitions as $field) {
-                $slug = $field['slug'] ?? null;
-                if ($slug && preg_match('/^[a-zA-Z0-9_]+$/', $slug)) {
-                    $tags[] = '{{' . $slug . '}}';
-                }
-            }
-        }
-
-        $tagList = implode(', ', array_map(fn ($t) => '<code>' . e($t) . '</code>', $tags));
-
-        return Placeholder::make('placeholder_hint')
-            ->label(__('Available Placeholders'))
-            ->content(new HtmlString($tagList))
-            ->columnSpanFull();
+        return \JanDev\EmailSystem\Support\PlaceholderHint::make();
     }
 
     /**
@@ -248,10 +339,12 @@ class CreateCampaign extends CreateRecord
                 'sender_address'     => $data['sender_address'] ?? null,
                 'sender_display_name' => $data['sender_display_name'] ?? null,
                 'email_template_id'  => $data['email_template_id'] ?? null,
+                'content_type'       => $data['content_type'] ?? 'html',
                 'subject'            => $data['subject'] ?? null,
                 'body'               => $data['body'] ?? null,
+                'variations'         => $data['variations'] ?? [],
                 'audience_group_ids' => $data['audience_group_ids'] ?? [],
-                'skip_yahoo'         => (bool) ($data['skip_yahoo'] ?? true),
+                'skip_providers'     => $data['skip_providers'] ?? [],
                 'current_step'       => $step,
             ];
 
@@ -261,6 +354,10 @@ class CreateCampaign extends CreateRecord
                 $campaign = Campaign::create($draft);
                 $this->draftCampaignId = $campaign->id;
             }
+
+            // Update URL so page refresh resumes this draft
+            $url = $this->getResource()::getUrl('create') . '?draft=' . $this->draftCampaignId;
+            $this->js("window.history.replaceState({}, '', '{$url}')");
         } catch (\Throwable $e) {
             // Non-fatal — wizard continues even if draft save fails
             \Illuminate\Support\Facades\Log::warning('Campaign draft save failed: ' . $e->getMessage());

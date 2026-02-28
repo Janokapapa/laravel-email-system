@@ -16,9 +16,10 @@ use Filament\Actions\DeleteAction;
 use Filament\Forms\Components\CheckboxList;
 use Filament\Forms\Components\Field;
 use Filament\Forms\Components\Placeholder;
+use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
-use Filament\Forms\Components\Toggle;
+use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
 use Filament\Notifications\Notification;
@@ -173,7 +174,7 @@ class EditCampaign extends EditRecord
             Step::make(__('Lists'))
                 ->icon('heroicon-o-users')
                 ->schema([
-                    CheckboxList::make('audience_group_ids')
+                    Select::make('audience_group_ids')
                         ->label(__('Email Lists'))
                         ->options(function () {
                             return EmailAudienceGroup::orderBy('name')
@@ -187,13 +188,20 @@ class EditCampaign extends EditRecord
                                 });
                         })
                         ->required()
-                        ->searchable()
-                        ->columns(2),
+                        ->multiple()
+                        ->searchable(),
 
-                    Toggle::make('skip_yahoo')
-                        ->label(__('Skip Yahoo/Ymail'))
-                        ->helperText(__('Skip recipients with @yahoo or @ymail addresses'))
-                        ->default(true),
+                    CheckboxList::make('skip_providers')
+                        ->label(__('Skip Providers'))
+                        ->helperText(__('Skip recipients from selected email providers'))
+                        ->options([
+                            'yahoo'     => __('Yahoo (yahoo, ymail, aol, aim, verizon)'),
+                            'microsoft' => __('Microsoft (hotmail, outlook, live, msn)'),
+                            'gmail'     => __('Gmail (gmail, googlemail)'),
+                            'icloud'    => __('iCloud (icloud, me, mac)'),
+                        ])
+                        ->default([])
+                        ->columns(2),
                 ]),
 
             // ─── Step 3: Template ─────────────────────────────────────────────
@@ -208,13 +216,28 @@ class EditCampaign extends EditRecord
                         ->live()
                         ->afterStateUpdated(function (Set $set, ?string $state) {
                             if ($state) {
-                                $template = EmailTemplate::find((int) $state);
+                                $template = EmailTemplate::with('variations')->find((int) $state);
                                 if ($template) {
+                                    $set('content_type', $template->content_type ?? 'html');
                                     $set('subject', $template->subject);
                                     $set('body', $template->body);
+                                    $set('variations', $template->variations->map(fn ($v) => [
+                                        'subject' => $v->subject,
+                                        'body'    => $v->body,
+                                    ])->toArray());
                                 }
                             }
                         }),
+
+                    Select::make('content_type')
+                        ->label(__('Content Type'))
+                        ->options([
+                            'html' => __('HTML'),
+                            'text' => __('Plain Text'),
+                        ])
+                        ->default('html')
+                        ->required()
+                        ->live(),
 
                     TextInput::make('subject')
                         ->label(__('Subject'))
@@ -225,11 +248,47 @@ class EditCampaign extends EditRecord
                     Field::make('body')
                         ->label(__('Email Body'))
                         ->view('email-system::forms.tinymce')
-                        ->extraAttributes(['height' => 500])
+                        ->extraAttributes(fn (Get $get) => [
+                            'height' => 500,
+                            'contentType' => $get('content_type') ?? 'html',
+                        ])
                         ->columnSpanFull()
                         ->dehydrated(true)
                         ->dehydrateStateUsing(fn ($state) => $state)
                         ->required(),
+
+                    Section::make(__('Variations'))
+                        ->description(__('Subject/body variations — the sender randomly picks one per recipient.'))
+                        ->collapsible()
+                        ->collapsed()
+                        ->schema([
+                            Repeater::make('variations')
+                                ->label(false)
+                                ->schema([
+                                    TextInput::make('subject')
+                                        ->label(__('Subject'))
+                                        ->required()
+                                        ->columnSpanFull(),
+
+                                    Field::make('body')
+                                        ->label(__('Body'))
+                                        ->view('email-system::forms.tinymce')
+                                        ->extraAttributes(fn (Get $get) => [
+                                            'height' => 400,
+                                            'contentType' => $get('../../content_type') ?? 'html',
+                                        ])
+                                        ->columnSpanFull()
+                                        ->dehydrated(true)
+                                        ->dehydrateStateUsing(fn ($state) => $state),
+                                ])
+                                ->columns(1)
+                                ->reorderable()
+                                ->reorderableWithDragAndDrop()
+                                ->collapsible()
+                                ->itemLabel(fn (array $state): ?string => ($state['subject'] ?? '') !== '' ? __('Variation') . ': ' . $state['subject'] : __('New Variation'))
+                                ->defaultItems(0)
+                                ->addActionLabel(__('Add Variation')),
+                        ]),
                 ]),
 
             // ─── Step 4: Test & Preview ───────────────────────────────────────
@@ -287,24 +346,7 @@ class EditCampaign extends EditRecord
 
     protected function buildPlaceholderHint(): Placeholder
     {
-        $tags = ['{{name}}', '{{email}}', '{{unsubscribe=Unsubscribe here}}'];
-
-        if (class_exists(\JanDev\UserManagement\Models\Setting::class)) {
-            $definitions = AudienceUser::getCustomFieldDefinitions();
-            foreach ($definitions as $field) {
-                $slug = $field['slug'] ?? null;
-                if ($slug && preg_match('/^[a-zA-Z0-9_]+$/', $slug)) {
-                    $tags[] = '{{' . $slug . '}}';
-                }
-            }
-        }
-
-        $tagList = implode(', ', array_map(fn ($t) => '<code>' . e($t) . '</code>', $tags));
-
-        return Placeholder::make('placeholder_hint')
-            ->label(__('Available Placeholders'))
-            ->content(new HtmlString($tagList))
-            ->columnSpanFull();
+        return \JanDev\EmailSystem\Support\PlaceholderHint::make();
     }
 
     protected function mutateFormDataBeforeSave(array $data): array

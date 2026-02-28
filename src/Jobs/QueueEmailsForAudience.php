@@ -7,6 +7,7 @@ use JanDev\EmailSystem\Models\EmailAudienceGroup;
 use JanDev\EmailSystem\Models\EmailLog;
 use JanDev\EmailSystem\Models\EmailTemplate;
 use JanDev\EmailSystem\Models\JobTracker;
+use JanDev\EmailSystem\Support\ProviderResolver;
 use JanDev\EmailSystem\Support\SenderResolver;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -26,7 +27,7 @@ class QueueEmailsForAudience implements ShouldQueue
 
     protected ?int $templateId;
     protected int $audienceGroupId;
-    protected bool $skipYahoo;
+    protected array $skipProviders;
     protected ?int $userId;
     protected ?string $senderName;
     protected ?\Closure $onComplete = null;
@@ -35,28 +36,31 @@ class QueueEmailsForAudience implements ShouldQueue
     protected ?int $campaignId = null;
     protected ?string $campaignSubject = null;
     protected ?string $campaignBody = null;
+    protected array $campaignVariations = [];
     protected ?string $senderAddress = null;
 
     public function __construct(
         ?int $templateId,
         int $audienceGroupId,
-        bool $skipYahoo = false,
+        array $skipProviders = [],
         ?int $userId = null,
         ?string $senderName = null,
         ?int $campaignId = null,
         ?string $campaignSubject = null,
         ?string $campaignBody = null,
         ?string $senderAddress = null,
+        array $campaignVariations = [],
     ) {
         $this->templateId = $templateId;
         $this->audienceGroupId = $audienceGroupId;
-        $this->skipYahoo = $skipYahoo;
+        $this->skipProviders = $skipProviders;
         $this->userId = $userId;
         $this->senderName = $senderName;
         $this->campaignId = $campaignId;
         $this->campaignSubject = $campaignSubject;
         $this->campaignBody = $campaignBody;
         $this->senderAddress = $senderAddress;
+        $this->campaignVariations = $campaignVariations;
     }
 
     public function handle(): void
@@ -139,12 +143,24 @@ class QueueEmailsForAudience implements ShouldQueue
         $contentPool = [];
 
         if ($this->campaignId && $this->campaignBody !== null) {
-            // Campaign mode: single content (no variations)
+            // Campaign mode: original content + campaign variations
             $contentPool[] = [
                 'subject'      => $this->campaignSubject ?? '',
                 'body'         => $this->campaignBody ?? '',
                 'variation_id' => null,
             ];
+            foreach ($this->campaignVariations as $index => $variation) {
+                $subject = trim($variation['subject'] ?? '');
+                $body = $variation['body'] ?? '';
+                if ($subject === '' && strip_tags($body) === '') {
+                    continue;
+                }
+                $contentPool[] = [
+                    'subject'      => $subject,
+                    'body'         => $body,
+                    'variation_id' => null,
+                ];
+            }
         } elseif ($template) {
             // Template mode: original + variations
             $contentPool[] = [
@@ -170,7 +186,7 @@ class QueueEmailsForAudience implements ShouldQueue
         $batchSize = 1000;
         $queuedCount = 0;
         $skippedCount = 0;
-        $yahooSkippedCount = 0;
+        $providerSkippedCount = 0;
         $alreadySentSkippedCount = 0;
 
         // Process in chunks to avoid memory issues
@@ -179,7 +195,7 @@ class QueueEmailsForAudience implements ShouldQueue
             ->where('bounced', false)
             ->chunkById(1000, function ($users) use (
                 $template, $audienceGroup, $sender, $blockedEmails, $alreadySentEmails,
-                &$batchData, &$queuedCount, &$skippedCount, &$yahooSkippedCount, &$alreadySentSkippedCount, $batchSize,
+                &$batchData, &$queuedCount, &$skippedCount, &$providerSkippedCount, &$alreadySentSkippedCount, $batchSize,
                 $initialStatus, $tracker, $contentPool
             ) {
                 foreach ($users as $user) {
@@ -189,9 +205,9 @@ class QueueEmailsForAudience implements ShouldQueue
                         continue;
                     }
 
-                    // Skip Yahoo/Ymail if enabled
-                    if ($this->skipYahoo && preg_match('/@(yahoo|ymail)\./i', $user->email)) {
-                        $yahooSkippedCount++;
+                    // Skip by provider group if configured
+                    if (!empty($this->skipProviders) && in_array(ProviderResolver::resolve($user->email), $this->skipProviders, true)) {
+                        $providerSkippedCount++;
                         continue;
                     }
 
@@ -242,7 +258,7 @@ class QueueEmailsForAudience implements ShouldQueue
 
         $duration = round(microtime(true) - $startTime, 2);
 
-        Log::channel('queue')->info("QueueEmailsForAudience completed: {$queuedCount} queued, {$alreadySentSkippedCount} already sent, {$skippedCount} blocked, {$yahooSkippedCount} yahoo in {$duration}s");
+        Log::channel('queue')->info("QueueEmailsForAudience completed: {$queuedCount} queued, {$alreadySentSkippedCount} already sent, {$skippedCount} blocked, {$providerSkippedCount} provider-skipped in {$duration}s");
 
         // Send notification callback if configured
         $notificationCallback = resolve_callback(config('email-system.queue_completion_callback'));
@@ -251,7 +267,7 @@ class QueueEmailsForAudience implements ShouldQueue
                 'queued' => $queuedCount,
                 'skipped' => $skippedCount,
                 'already_sent_skipped' => $alreadySentSkippedCount,
-                'yahoo_skipped' => $yahooSkippedCount,
+                'provider_skipped' => $providerSkippedCount,
                 'duration' => $duration,
             ]);
         }

@@ -6,8 +6,28 @@
     $height = data_get($getExtraAttributes(), 'height', 300);
     // Optional max-width for email preview mode
     $maxWidth = data_get($getExtraAttributes(), 'maxWidth', null);
+    // Content type: 'html' (TinyMCE) or 'text' (plain textarea)
+    $contentType = data_get($getExtraAttributes(), 'contentType', 'html');
 @endphp
 
+{{-- wire:key forces Livewire to destroy and recreate when contentType changes --}}
+<div wire:key="body-{{ $getId() }}-{{ $contentType }}">
+@if ($contentType === 'text')
+{{-- Plain text mode: simple textarea --}}
+<div class="fi-fo-field-wrp">
+    @if ($getLabel())
+        <label class="fi-fo-field-wrp-label">{{ $getLabel() }}</label>
+    @endif
+
+    <textarea
+        wire:model.live.debounce.500ms="{{ $getStatePath() }}"
+        class="fi-input w-full font-mono text-sm"
+        style="min-height: {{ (int) $height }}px; min-width: 100%; resize: vertical; white-space: pre-wrap;"
+        rows="20"
+    >{{ $getState() }}</textarea>
+</div>
+@else
+{{-- HTML mode: TinyMCE rich editor --}}
 <div
     wire:ignore
     x-data="tinymceField({
@@ -33,6 +53,8 @@
         class="fi-input w-full"
         style="min-height: {{ (int) $height }}px; min-width: 100%;"
     ></textarea>
+</div>
+@endif
 </div>
 
 <script>
@@ -151,6 +173,13 @@
                             editor.setContent(startHtml || '');
                             editor.save();
                             this.bindSaveGuards();
+
+                            // Watch for external state changes (e.g. template selection)
+                            this.$watch('state', (val) => {
+                                if (editor && val !== editor.getContent()) {
+                                    editor.setContent(val || '');
+                                }
+                            });
                         });
 
                         // Throttled live sync while typing

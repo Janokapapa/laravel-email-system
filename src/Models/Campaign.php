@@ -17,10 +17,12 @@ class Campaign extends Model
         'sender_address',
         'sender_display_name',
         'email_template_id',
+        'content_type',
         'subject',
         'body',
+        'variations',
         'audience_group_ids',
-        'skip_yahoo',
+        'skip_providers',
         'total_recipients',
         'sent_count',
         'failed_count',
@@ -29,8 +31,9 @@ class Campaign extends Model
     ];
 
     protected $casts = [
+        'variations' => 'array',
         'audience_group_ids' => 'array',
-        'skip_yahoo' => 'boolean',
+        'skip_providers' => 'array',
         'total_recipients' => 'integer',
         'sent_count' => 'integer',
         'failed_count' => 'integer',
