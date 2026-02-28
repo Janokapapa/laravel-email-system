@@ -82,7 +82,22 @@ class PmtaSpooler
         $subject = '=?UTF-8?B?' . base64_encode($emailLog->subject) . '?=';
         $fromHeader = $fromName ? "{$fromName} <{$fromAddress}>" : $fromAddress;
 
-        $htmlBody = quoted_printable_encode((string) $emailLog->message);
+        $rawHtml = (string) $emailLog->message;
+
+        // Wrap in full HTML document if the template is just a fragment (no <html> tag).
+        // Sets margin/padding to 0 so email clients don't add a white border around the content.
+        if (stripos($rawHtml, '<html') === false) {
+            // Extract background-color from the outermost element to apply on <body>
+            $bodyBg = '';
+            if (preg_match('/background(?:-color)?\s*:\s*(#[0-9a-fA-F]{3,8}|rgba?\([^)]+\)|[a-z]+)/i', $rawHtml, $m)) {
+                $bodyBg = 'background-color:' . $m[1] . ';';
+            }
+
+            $rawHtml = '<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>'
+                . '<body style="margin:0;padding:0;' . $bodyBg . '">' . $rawHtml . '</body></html>';
+        }
+
+        $htmlBody = quoted_printable_encode($rawHtml);
         $textBody = quoted_printable_encode(trim(strip_tags((string) $emailLog->message)));
 
         $eml = <<<EOT
