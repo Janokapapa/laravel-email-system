@@ -177,6 +177,7 @@ class EditCampaign extends EditRecord
                                 $config = SenderResolver::get($state);
                                 $set('sender_display_name', $config['from_name'] ?? '');
                                 $set('sender_address', $config['from_address'] ?? '');
+                                $set('reply_to', $config['reply_to'] ?? $config['from_address'] ?? '');
                             }
                         }),
 
@@ -188,6 +189,12 @@ class EditCampaign extends EditRecord
                         ->label(__('From Address'))
                         ->email()
                         ->required(),
+
+                    TextInput::make('reply_to')
+                        ->label(__('Reply-To'))
+                        ->email()
+                        ->helperText(__('Leave empty to use From Address'))
+                        ->nullable(),
                 ]),
 
             // ─── Step 2: Lists ───────────────────────────────────────────────
@@ -422,6 +429,7 @@ class EditCampaign extends EditRecord
             'sender'               => $senderAddress,
             'sender_name'          => $senderName,
             'sender_display_name'  => $state['sender_display_name'] ?? ($senderConfig['from_name'] ?? null),
+            'reply_to'             => $state['reply_to'] ?? ($senderConfig['reply_to'] ?? null),
             'content_type'         => $state['content_type'] ?? 'html',
             'status'               => 'queued',
         ]);

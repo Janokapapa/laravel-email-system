@@ -117,7 +117,7 @@
                         @endif
                     </div>
                     <h3 class="cv-h3">{{ e($r->subject) }}</h3>
-                    <p class="cv-sub" style="margin:0">{{ e($r->sender_display_name ?? $r->sender_name) }} &lt;{{ e($r->sender_address) }}&gt;</p>
+                    <p class="cv-sub" style="margin:0">{{ e($r->sender_display_name ?? $r->sender_name) }} &lt;{{ e($r->sender_address) }}&gt;@if($r->reply_to && $r->reply_to !== $r->sender_address) · Reply-To: {{ e($r->reply_to) }}@endif</p>
                 </div>
                 @if($r->sent_at)
                     <div class="cv-sent-info">

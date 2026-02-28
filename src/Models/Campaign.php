@@ -16,6 +16,7 @@ class Campaign extends Model
         'sender_name',
         'sender_address',
         'sender_display_name',
+        'reply_to',
         'email_template_id',
         'content_type',
         'subject',

@@ -23,6 +23,7 @@ class EmailLog extends Model
         'sender',
         'sender_name',
         'sender_display_name',
+        'reply_to',
         'content_type',
         'cc',
         'bcc',

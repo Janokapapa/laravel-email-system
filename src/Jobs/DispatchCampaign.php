@@ -62,6 +62,7 @@ class DispatchCampaign implements ShouldQueue
                 campaignVariations:  $campaign->variations ?? [],
                 contentType:         $campaign->content_type ?? 'html',
                 senderDisplayName:   $campaign->sender_display_name,
+                replyTo:             $campaign->reply_to,
             );
         }
 

@@ -57,6 +57,9 @@ class SendQueuedEmail implements ShouldQueue
             if ($this->emailLog->sender_display_name) {
                 $senderConfig['from_name'] = $this->emailLog->sender_display_name;
             }
+            if ($this->emailLog->reply_to) {
+                $senderConfig['reply_to'] = $this->emailLog->reply_to;
+            }
         }
 
         $senderType = $senderConfig['type'] ?? config('email-system.driver', 'smtp');

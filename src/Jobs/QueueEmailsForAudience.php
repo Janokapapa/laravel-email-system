@@ -39,6 +39,7 @@ class QueueEmailsForAudience implements ShouldQueue
     protected array $campaignVariations = [];
     protected ?string $senderAddress = null;
     protected ?string $senderDisplayName = null;
+    protected ?string $replyTo = null;
     protected string $contentType = 'html';
 
     public function __construct(
@@ -54,6 +55,7 @@ class QueueEmailsForAudience implements ShouldQueue
         array $campaignVariations = [],
         string $contentType = 'html',
         ?string $senderDisplayName = null,
+        ?string $replyTo = null,
     ) {
         $this->templateId = $templateId;
         $this->audienceGroupId = $audienceGroupId;
@@ -67,6 +69,7 @@ class QueueEmailsForAudience implements ShouldQueue
         $this->campaignVariations = $campaignVariations;
         $this->contentType = $contentType;
         $this->senderDisplayName = $senderDisplayName;
+        $this->replyTo = $replyTo;
     }
 
     public function handle(): void
@@ -135,6 +138,7 @@ class QueueEmailsForAudience implements ShouldQueue
         // Resolve sender address: campaign sender_address takes priority over global config
         $sender = $this->senderAddress ?? config('email-system.from.address');
         $senderDisplayName = $this->senderDisplayName;
+        $replyTo = $this->replyTo;
 
         // Resolve content type: campaign/constructor value, or template's content_type
         $contentType = $this->contentType;
@@ -209,7 +213,7 @@ class QueueEmailsForAudience implements ShouldQueue
             ->chunkById(1000, function ($users) use (
                 $template, $audienceGroup, $sender, $blockedEmails, $alreadySentEmails,
                 &$batchData, &$queuedCount, &$skippedCount, &$providerSkippedCount, &$alreadySentSkippedCount, $batchSize,
-                $initialStatus, $tracker, $contentPool, $contentType, $senderDisplayName
+                $initialStatus, $tracker, $contentPool, $contentType, $senderDisplayName, $replyTo
             ) {
                 foreach ($users as $user) {
                     // Skip if already sent/queued for this template
@@ -253,6 +257,7 @@ class QueueEmailsForAudience implements ShouldQueue
                         'sender'                  => $sender,
                         'sender_name'             => $this->senderName,
                         'sender_display_name'     => $senderDisplayName,
+                        'reply_to'                => $replyTo,
                         'content_type'            => $contentType,
                         'variation_id'            => $content['variation_id'],
                         'status'                  => $initialStatus,
