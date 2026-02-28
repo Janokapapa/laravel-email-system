@@ -4,11 +4,17 @@
     $stats = $this->getStats();
     $audienceStats = $this->getAudienceStats();
     $sentCount = (int) ($stats->sent ?? 0);
+    $failedCount = (int) ($stats->failed ?? 0);
+    $queuedCount = (int) ($stats->queued ?? 0);
     $totalRecipients = $r->total_recipients ?: 1;
     $deliveryPct = round(($r->sent_count / $totalRecipients) * 100, 1);
     $clickedCount = (int) ($stats->clicked_count ?? 0);
     $clickRate = $sentCount > 0 ? round(($clickedCount / $sentCount) * 100, 1) : 0;
+    $complainedCount = (int) ($stats->complained_count ?? 0);
+    $hardBounce = (int) ($stats->hard_bounce ?? 0);
+    $softBounce = (int) ($stats->soft_bounce ?? 0);
     $variationCount = count($r->variations ?? []);
+    $hasIssues = $failedCount > 0 || $hardBounce > 0 || $softBounce > 0 || $complainedCount > 0;
 
     $statusColor = match($r->status) {
         'sent' => 'emerald',
@@ -28,12 +34,15 @@
 @endphp
 
 <div class="space-y-6">
-    {{-- Header card --}}
+
+    {{-- Header --}}
     <div class="fi-section rounded-xl bg-white shadow-sm ring-1 ring-gray-950/5 dark:bg-gray-900 dark:ring-white/10 overflow-hidden">
+        {{-- Color accent bar --}}
+        <div class="h-1 bg-{{ $statusColor }}-500"></div>
         <div class="p-6">
             <div class="flex items-start justify-between gap-4">
-                <div class="min-w-0">
-                    <div class="flex items-center gap-3 mb-3">
+                <div class="min-w-0 flex-1">
+                    <div class="flex items-center gap-2.5 mb-3">
                         <span class="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold bg-{{ $statusColor }}-50 text-{{ $statusColor }}-700 dark:bg-{{ $statusColor }}-500/10 dark:text-{{ $statusColor }}-400">
                             @if($r->status === 'sending')
                                 <span class="w-2 h-2 rounded-full bg-{{ $statusColor }}-500 animate-pulse"></span>
@@ -47,128 +56,172 @@
                         @endif
                         @if($variationCount > 0)
                             <span class="inline-flex items-center rounded-md px-2 py-1 text-xs font-medium bg-indigo-50 text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-400">
-                                {{ $variationCount }} {{ __('variations') }}
+                                {{ $variationCount }} {{ trans_choice('variation|variations', $variationCount) }}
                             </span>
                         @endif
                     </div>
-                    <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-1">{{ e($r->subject) }}</h3>
+                    <h3 class="text-xl font-bold text-gray-900 dark:text-white mb-1.5 leading-tight">{{ e($r->subject) }}</h3>
                     <p class="text-sm text-gray-500 dark:text-gray-400">
                         {{ e($r->sender_display_name ?? $r->sender_name) }} &lt;{{ e($r->sender_address) }}&gt;
                     </p>
                 </div>
                 @if($r->sent_at)
-                    <div class="text-right shrink-0">
-                        <div class="text-xs text-gray-400 dark:text-gray-500">{{ __('Sent') }}</div>
-                        <div class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ $r->sent_at->format('M j, Y') }}</div>
+                    <div class="text-right shrink-0 pl-4">
+                        <div class="text-xs uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-0.5">{{ __('Sent') }}</div>
+                        <div class="text-sm font-semibold text-gray-800 dark:text-gray-200">{{ $r->sent_at->format('M j, Y') }}</div>
                         <div class="text-xs text-gray-400 dark:text-gray-500">{{ $r->sent_at->format('H:i') }}</div>
                     </div>
                 @endif
             </div>
 
-            {{-- Meta row --}}
-            <div class="mt-4 pt-4 border-t border-gray-100 dark:border-gray-800 flex flex-wrap gap-x-6 gap-y-2 text-sm text-gray-600 dark:text-gray-400">
-                <div class="flex items-center gap-1.5">
-                    <x-heroicon-m-user-group class="w-4 h-4 text-gray-400" />
+            {{-- Meta chips --}}
+            <div class="mt-4 pt-4 border-t border-gray-100 dark:border-gray-800 flex flex-wrap gap-3">
+                <span class="inline-flex items-center gap-1.5 rounded-full bg-gray-50 dark:bg-gray-800 px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-400">
+                    <x-heroicon-m-user-group class="w-3.5 h-3.5" />
                     {{ $this->getListNames() }}
-                </div>
+                </span>
                 @if($this->getSkippedProviders())
-                    <div class="flex items-center gap-1.5">
-                        <x-heroicon-m-no-symbol class="w-4 h-4 text-gray-400" />
+                    <span class="inline-flex items-center gap-1.5 rounded-full bg-gray-50 dark:bg-gray-800 px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-400">
+                        <x-heroicon-m-no-symbol class="w-3.5 h-3.5" />
                         {{ __('Skip') }}: {{ $this->getSkippedProviders() }}
-                    </div>
+                    </span>
                 @endif
+                <span class="inline-flex items-center gap-1.5 rounded-full bg-gray-50 dark:bg-gray-800 px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-400">
+                    <x-heroicon-m-envelope class="w-3.5 h-3.5" />
+                    {{ number_format($r->total_recipients ?? 0) }} {{ __('recipients') }}
+                </span>
             </div>
         </div>
     </div>
 
-    {{-- Stats grid --}}
+    {{-- Big numbers row --}}
     <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        {{-- Sent --}}
-        <div class="fi-section rounded-xl bg-white shadow-sm ring-1 ring-gray-950/5 dark:bg-gray-900 dark:ring-white/10 p-5 text-center">
-            <div class="text-3xl font-bold text-emerald-600 dark:text-emerald-400">{{ number_format($sentCount) }}</div>
-            <div class="text-sm font-medium text-gray-500 dark:text-gray-400 mt-1">{{ __('Delivered') }}</div>
+        {{-- Delivered --}}
+        <div class="fi-section rounded-xl bg-white shadow-sm ring-1 ring-gray-950/5 dark:bg-gray-900 dark:ring-white/10 p-5 relative overflow-hidden">
+            <div class="absolute top-0 right-0 w-16 h-16 -mr-4 -mt-4 rounded-full bg-emerald-500/5 dark:bg-emerald-500/10"></div>
+            <div class="relative">
+                <div class="flex items-center gap-2 mb-2">
+                    <div class="w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-500/20 flex items-center justify-center">
+                        <x-heroicon-m-check-circle class="w-4.5 h-4.5 text-emerald-600 dark:text-emerald-400" />
+                    </div>
+                </div>
+                <div class="text-2xl font-bold text-gray-900 dark:text-white">{{ number_format($sentCount) }}</div>
+                <div class="text-xs font-medium text-gray-500 dark:text-gray-400 mt-0.5">{{ __('Delivered') }}</div>
+            </div>
         </div>
 
         {{-- Queued --}}
-        @if(($stats->queued ?? 0) > 0)
-            <div class="fi-section rounded-xl bg-white shadow-sm ring-1 ring-gray-950/5 dark:bg-gray-900 dark:ring-white/10 p-5 text-center">
-                <div class="flex items-center justify-center gap-1.5">
-                    <span class="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
-                    <span class="text-3xl font-bold text-amber-600 dark:text-amber-400">{{ number_format($stats->queued) }}</span>
+        @if($queuedCount > 0)
+            <div class="fi-section rounded-xl bg-white shadow-sm ring-1 ring-gray-950/5 dark:bg-gray-900 dark:ring-white/10 p-5 relative overflow-hidden">
+                <div class="absolute top-0 right-0 w-16 h-16 -mr-4 -mt-4 rounded-full bg-amber-500/5 dark:bg-amber-500/10"></div>
+                <div class="relative">
+                    <div class="flex items-center gap-2 mb-2">
+                        <div class="w-8 h-8 rounded-lg bg-amber-100 dark:bg-amber-500/20 flex items-center justify-center">
+                            <span class="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse"></span>
+                        </div>
+                    </div>
+                    <div class="text-2xl font-bold text-gray-900 dark:text-white">{{ number_format($queuedCount) }}</div>
+                    <div class="text-xs font-medium text-gray-500 dark:text-gray-400 mt-0.5">{{ __('Queued') }}</div>
                 </div>
-                <div class="text-sm font-medium text-gray-500 dark:text-gray-400 mt-1">{{ __('Queued') }}</div>
             </div>
         @endif
 
         {{-- Clicked --}}
-        <div class="fi-section rounded-xl bg-white shadow-sm ring-1 ring-gray-950/5 dark:bg-gray-900 dark:ring-white/10 p-5 text-center">
-            <div class="text-3xl font-bold text-purple-600 dark:text-purple-400">{{ number_format($clickedCount) }}</div>
-            <div class="text-sm font-medium text-gray-500 dark:text-gray-400 mt-1">{{ __('Clicked') }}</div>
-        </div>
+        @if($clickedCount > 0)
+            <div class="fi-section rounded-xl bg-white shadow-sm ring-1 ring-gray-950/5 dark:bg-gray-900 dark:ring-white/10 p-5 relative overflow-hidden">
+                <div class="absolute top-0 right-0 w-16 h-16 -mr-4 -mt-4 rounded-full bg-purple-500/5 dark:bg-purple-500/10"></div>
+                <div class="relative">
+                    <div class="flex items-center gap-2 mb-2">
+                        <div class="w-8 h-8 rounded-lg bg-purple-100 dark:bg-purple-500/20 flex items-center justify-center">
+                            <x-heroicon-m-cursor-arrow-rays class="w-4.5 h-4.5 text-purple-600 dark:text-purple-400" />
+                        </div>
+                    </div>
+                    <div class="text-2xl font-bold text-gray-900 dark:text-white">{{ number_format($clickedCount) }}</div>
+                    <div class="text-xs font-medium text-gray-500 dark:text-gray-400 mt-0.5">{{ __('Clicked') }} <span class="text-purple-600 dark:text-purple-400">({{ $clickRate }}%)</span></div>
+                </div>
+            </div>
+        @endif
 
         {{-- Failed --}}
-        @if(($stats->failed ?? 0) > 0)
-            <div class="fi-section rounded-xl bg-white shadow-sm ring-1 ring-gray-950/5 dark:bg-gray-900 dark:ring-white/10 p-5 text-center">
-                <div class="text-3xl font-bold text-red-600 dark:text-red-400">{{ number_format($stats->failed) }}</div>
-                <div class="text-sm font-medium text-gray-500 dark:text-gray-400 mt-1">{{ __('Failed') }}</div>
+        @if($failedCount > 0)
+            <div class="fi-section rounded-xl bg-white shadow-sm ring-1 ring-gray-950/5 dark:bg-gray-900 dark:ring-white/10 p-5 relative overflow-hidden">
+                <div class="absolute top-0 right-0 w-16 h-16 -mr-4 -mt-4 rounded-full bg-red-500/5 dark:bg-red-500/10"></div>
+                <div class="relative">
+                    <div class="flex items-center gap-2 mb-2">
+                        <div class="w-8 h-8 rounded-lg bg-red-100 dark:bg-red-500/20 flex items-center justify-center">
+                            <x-heroicon-m-x-circle class="w-4.5 h-4.5 text-red-600 dark:text-red-400" />
+                        </div>
+                    </div>
+                    <div class="text-2xl font-bold text-gray-900 dark:text-white">{{ number_format($failedCount) }}</div>
+                    <div class="text-xs font-medium text-gray-500 dark:text-gray-400 mt-0.5">{{ __('Failed') }}</div>
+                </div>
             </div>
         @endif
     </div>
 
-    {{-- Progress bars --}}
-    <div class="fi-section rounded-xl bg-white shadow-sm ring-1 ring-gray-950/5 dark:bg-gray-900 dark:ring-white/10 p-6 space-y-5">
-        {{-- Delivery --}}
-        <div>
-            <div class="flex justify-between text-sm mb-2">
-                <span class="font-medium text-gray-700 dark:text-gray-300">{{ __('Delivery') }}</span>
-                <span class="font-semibold text-gray-900 dark:text-white">{{ number_format($r->sent_count ?? 0) }} / {{ number_format($r->total_recipients ?? 0) }} <span class="text-gray-400 font-normal">({{ $deliveryPct }}%)</span></span>
-            </div>
-            <div class="w-full bg-gray-100 dark:bg-gray-800 rounded-full h-2.5">
-                <div class="bg-emerald-500 rounded-full h-2.5 transition-all duration-500" style="width: {{ min($deliveryPct, 100) }}%"></div>
-            </div>
+    {{-- Delivery progress --}}
+    <div class="fi-section rounded-xl bg-white shadow-sm ring-1 ring-gray-950/5 dark:bg-gray-900 dark:ring-white/10 p-6">
+        <div class="flex items-center justify-between mb-3">
+            <span class="text-sm font-semibold text-gray-900 dark:text-white">{{ __('Delivery Progress') }}</span>
+            <span class="text-sm tabular-nums">
+                <span class="font-bold text-gray-900 dark:text-white">{{ number_format($r->sent_count ?? 0) }}</span>
+                <span class="text-gray-400">/</span>
+                <span class="text-gray-500 dark:text-gray-400">{{ number_format($r->total_recipients ?? 0) }}</span>
+            </span>
+        </div>
+        <div class="w-full bg-gray-100 dark:bg-gray-800 rounded-full h-3 overflow-hidden">
+            <div class="h-full rounded-full transition-all duration-500 {{ $deliveryPct >= 100 ? 'bg-emerald-500' : 'bg-emerald-500' }}" style="width: {{ min($deliveryPct, 100) }}%"></div>
+        </div>
+        <div class="flex items-center justify-between mt-2">
+            <span class="text-xs text-gray-400">0%</span>
+            <span class="text-sm font-bold {{ $deliveryPct >= 100 ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-600 dark:text-gray-300' }}">{{ $deliveryPct }}%</span>
+            <span class="text-xs text-gray-400">100%</span>
         </div>
 
-        {{-- Click rate --}}
-        @if($sentCount > 0)
-            <div>
-                <div class="flex justify-between text-sm mb-2">
-                    <span class="font-medium text-gray-700 dark:text-gray-300">{{ __('Click rate') }}</span>
-                    <span class="font-semibold text-gray-900 dark:text-white">{{ $clickRate }}%</span>
+        {{-- Click rate bar (only if there are clicks) --}}
+        @if($clickedCount > 0)
+            <div class="mt-5 pt-5 border-t border-gray-100 dark:border-gray-800">
+                <div class="flex items-center justify-between mb-3">
+                    <span class="text-sm font-semibold text-gray-900 dark:text-white">{{ __('Click Rate') }}</span>
+                    <span class="text-sm font-bold text-purple-600 dark:text-purple-400">{{ $clickRate }}%</span>
                 </div>
-                <div class="w-full bg-gray-100 dark:bg-gray-800 rounded-full h-2.5">
-                    <div class="bg-purple-500 rounded-full h-2.5 transition-all duration-500" style="width: {{ min($clickRate, 100) }}%"></div>
+                <div class="w-full bg-gray-100 dark:bg-gray-800 rounded-full h-3 overflow-hidden">
+                    <div class="bg-purple-500 h-full rounded-full transition-all duration-500" style="width: {{ min($clickRate, 100) }}%"></div>
                 </div>
             </div>
         @endif
     </div>
 
     {{-- Issues --}}
-    @if(($stats->failed ?? 0) > 0 || ($stats->hard_bounce ?? 0) > 0 || ($stats->soft_bounce ?? 0) > 0 || ($stats->complained_count ?? 0) > 0)
+    @if($hasIssues)
         <div class="fi-section rounded-xl bg-white shadow-sm ring-1 ring-gray-950/5 dark:bg-gray-900 dark:ring-white/10 p-6">
-            <h3 class="text-base font-semibold text-gray-900 dark:text-white mb-4">{{ __('Issues') }}</h3>
+            <div class="flex items-center gap-2 mb-4">
+                <x-heroicon-m-exclamation-triangle class="w-5 h-5 text-amber-500" />
+                <h3 class="text-base font-semibold text-gray-900 dark:text-white">{{ __('Issues') }}</h3>
+            </div>
             <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                @if(($stats->failed ?? 0) > 0)
-                    <div class="flex items-center justify-between bg-red-50 dark:bg-red-500/10 rounded-lg px-4 py-3">
-                        <span class="text-sm text-red-700 dark:text-red-300">{{ __('Failed') }}</span>
-                        <span class="text-sm font-bold text-red-600 dark:text-red-400">{{ number_format($stats->failed) }}</span>
+                @if($failedCount > 0)
+                    <div class="rounded-lg bg-red-50 dark:bg-red-500/10 p-3">
+                        <div class="text-lg font-bold text-red-600 dark:text-red-400">{{ number_format($failedCount) }}</div>
+                        <div class="text-xs font-medium text-red-700 dark:text-red-300">{{ __('Failed') }}</div>
                     </div>
                 @endif
-                @if(($stats->hard_bounce ?? 0) > 0)
-                    <div class="flex items-center justify-between bg-red-50 dark:bg-red-500/10 rounded-lg px-4 py-3">
-                        <span class="text-sm text-red-700 dark:text-red-300">{{ __('Hard bounce') }}</span>
-                        <span class="text-sm font-bold text-red-600 dark:text-red-400">{{ number_format($stats->hard_bounce) }}</span>
+                @if($hardBounce > 0)
+                    <div class="rounded-lg bg-red-50 dark:bg-red-500/10 p-3">
+                        <div class="text-lg font-bold text-red-600 dark:text-red-400">{{ number_format($hardBounce) }}</div>
+                        <div class="text-xs font-medium text-red-700 dark:text-red-300">{{ __('Hard bounce') }}</div>
                     </div>
                 @endif
-                @if(($stats->soft_bounce ?? 0) > 0)
-                    <div class="flex items-center justify-between bg-amber-50 dark:bg-amber-500/10 rounded-lg px-4 py-3">
-                        <span class="text-sm text-amber-700 dark:text-amber-300">{{ __('Soft bounce') }}</span>
-                        <span class="text-sm font-bold text-amber-600 dark:text-amber-400">{{ number_format($stats->soft_bounce) }}</span>
+                @if($softBounce > 0)
+                    <div class="rounded-lg bg-amber-50 dark:bg-amber-500/10 p-3">
+                        <div class="text-lg font-bold text-amber-600 dark:text-amber-400">{{ number_format($softBounce) }}</div>
+                        <div class="text-xs font-medium text-amber-700 dark:text-amber-300">{{ __('Soft bounce') }}</div>
                     </div>
                 @endif
-                @if(($stats->complained_count ?? 0) > 0)
-                    <div class="flex items-center justify-between bg-orange-50 dark:bg-orange-500/10 rounded-lg px-4 py-3">
-                        <span class="text-sm text-orange-700 dark:text-orange-300">{{ __('Complaints') }}</span>
-                        <span class="text-sm font-bold text-orange-600 dark:text-orange-400">{{ number_format($stats->complained_count) }}</span>
+                @if($complainedCount > 0)
+                    <div class="rounded-lg bg-orange-50 dark:bg-orange-500/10 p-3">
+                        <div class="text-lg font-bold text-orange-600 dark:text-orange-400">{{ number_format($complainedCount) }}</div>
+                        <div class="text-xs font-medium text-orange-700 dark:text-orange-300">{{ __('Complaints') }}</div>
                     </div>
                 @endif
             </div>
@@ -178,7 +231,10 @@
     {{-- By audience --}}
     @if($audienceStats->count() > 0)
         <div class="fi-section rounded-xl bg-white shadow-sm ring-1 ring-gray-950/5 dark:bg-gray-900 dark:ring-white/10 p-6">
-            <h3 class="text-base font-semibold text-gray-900 dark:text-white mb-4">{{ __('By list') }}</h3>
+            <div class="flex items-center gap-2 mb-4">
+                <x-heroicon-m-rectangle-stack class="w-5 h-5 text-gray-400" />
+                <h3 class="text-base font-semibold text-gray-900 dark:text-white">{{ __('By List') }}</h3>
+            </div>
             <div class="space-y-3">
                 @foreach($audienceStats as $stat)
                     @php
@@ -188,18 +244,31 @@
                         $listFailed = (int) ($stat->failed_count ?? 0);
                         $listClickRate = $listSent > 0 ? round(($listClicked / $listSent) * 100, 1) : 0;
                     @endphp
-                    <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
-                        <div class="flex items-center justify-between mb-2">
-                            <span class="text-sm font-semibold text-gray-900 dark:text-white">{{ $group?->name ?? __('Unknown') }}</span>
+                    <div class="rounded-lg border border-gray-100 dark:border-gray-800 p-4">
+                        <div class="flex items-center justify-between mb-3">
+                            <div class="flex items-center gap-2">
+                                <div class="w-2 h-2 rounded-full bg-emerald-500"></div>
+                                <span class="text-sm font-semibold text-gray-900 dark:text-white">{{ $group?->name ?? __('Unknown') }}</span>
+                            </div>
                             <span class="text-xs text-gray-400">{{ \Carbon\Carbon::parse($stat->last_sent)->format('M j, Y') }}</span>
                         </div>
-                        <div class="flex items-center gap-4 text-sm">
-                            <span class="text-emerald-600 dark:text-emerald-400 font-medium">{{ number_format($listSent) }} {{ __('sent') }}</span>
+                        <div class="flex items-center gap-3 text-sm">
+                            <span class="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-semibold">
+                                <x-heroicon-m-check class="w-3.5 h-3.5" />
+                                {{ number_format($listSent) }} {{ __('sent') }}
+                            </span>
                             @if($listClicked > 0)
-                                <span class="text-purple-600 dark:text-purple-400 font-medium">{{ number_format($listClicked) }} {{ __('clicked') }} ({{ $listClickRate }}%)</span>
+                                <span class="inline-flex items-center gap-1 text-purple-600 dark:text-purple-400 font-semibold">
+                                    <x-heroicon-m-cursor-arrow-rays class="w-3.5 h-3.5" />
+                                    {{ number_format($listClicked) }} {{ __('clicked') }}
+                                    <span class="text-gray-400 font-normal">({{ $listClickRate }}%)</span>
+                                </span>
                             @endif
                             @if($listFailed > 0)
-                                <span class="text-red-500 dark:text-red-400 font-medium">{{ number_format($listFailed) }} {{ __('failed') }}</span>
+                                <span class="inline-flex items-center gap-1 text-red-500 dark:text-red-400 font-semibold">
+                                    <x-heroicon-m-x-mark class="w-3.5 h-3.5" />
+                                    {{ number_format($listFailed) }} {{ __('failed') }}
+                                </span>
                             @endif
                         </div>
                     </div>
