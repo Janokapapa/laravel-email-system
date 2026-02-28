@@ -96,15 +96,11 @@ class EditEmailTemplate extends EditRecord
                 $senderConfig = $senderName ? SenderResolver::get($senderName) : null;
                 $senderAddress = $senderConfig['from_address'] ?? config('email-system.from.address');
 
-                $initialStatus = ($senderConfig && ($senderConfig['type'] ?? '') === 'pmta')
-                    ? 'spooled'
-                    : 'queued';
-
                 // Resolve content based on chosen variation
                 $variationChoice = $data['variation'] ?? 'original';
                 [$selectedSubject, $selectedBody, $selectedVariationId] = $this->resolveVariationContent($variationChoice);
 
-                EmailLog::create([
+                $emailLog = EmailLog::create([
                     'email_template_id' => $this->record->id,
                     'recipient'         => $data['test_email'],
                     'subject'           => '[TEST] ' . $selectedSubject,
@@ -112,8 +108,10 @@ class EditEmailTemplate extends EditRecord
                     'sender'            => $senderAddress,
                     'sender_name'       => $senderName,
                     'variation_id'      => $selectedVariationId,
-                    'status'            => $initialStatus,
+                    'status'            => 'queued',
                 ]);
+
+                \JanDev\EmailSystem\Jobs\SendQueuedEmail::dispatch($emailLog);
 
                 Notification::make()
                     ->title(__('Test email queued'))
