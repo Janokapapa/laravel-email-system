@@ -4,8 +4,7 @@ namespace JanDev\EmailSystem\Filament\Resources;
 
 use JanDev\EmailSystem\Filament\Resources\EmailTemplateResource\Pages;
 use JanDev\EmailSystem\Models\EmailTemplate;
-use JanDev\EmailSystem\Models\EmailLog;
-use JanDev\EmailSystem\Models\AudienceUser;
+use Filament\Actions\DeleteAction;
 use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Forms\Components\TextInput;
@@ -13,13 +12,10 @@ use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Field;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
-use Filament\Forms\Components\Textarea;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Utilities\Get;
-use Illuminate\Support\HtmlString;
 use Filament\Tables\Table;
 use Filament\Tables\Columns\TextColumn;
-use Filament\Tables\Columns\ViewColumn;
 use Filament\Actions\Action;
 
 class EmailTemplateResource extends Resource
@@ -138,9 +134,6 @@ class EmailTemplateResource extends Resource
                     ->label(__('Subject'))
                     ->sortable()
                     ->limit(40),
-                ViewColumn::make('send_statistics')
-                    ->label(__('Send Statistics'))
-                    ->view('email-system::filament.tables.email-template-stats'),
                 TextColumn::make('created_at')
                     ->label(__('Created At'))
                     ->dateTime('Y-m-d H:i:s')
@@ -148,29 +141,30 @@ class EmailTemplateResource extends Resource
             ])
             ->filters([])
             ->actions([
-                Action::make('statistics')
-                    ->label(__('Statistics'))
-                    ->icon('heroicon-m-chart-bar')
-                    ->color('info')
-                    ->modalHeading(fn ($record) => __('Send Statistics') . ': ' . $record->name)
-                    ->modalSubmitAction(false)
-                    ->modalCancelActionLabel(__('Close'))
-                    ->modalContent(fn ($record) => view('email-system::filament.email-template-stats', [
-                        'record' => $record,
-                        'stats' => $record->getSendStatistics(),
-                        'detailedStats' => EmailLog::where('email_template_id', $record->id)
-                            ->selectRaw("
-                                COUNT(*) as total,
-                                SUM(CASE WHEN status IN ('sent','spooled') THEN 1 ELSE 0 END) as sent,
-                                SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed,
-                                SUM(CASE WHEN status = 'queued' THEN 1 ELSE 0 END) as queued,
-                                SUM(clicked) as clicked_count,
-                                SUM(complained) as complained_count,
-                                SUM(CASE WHEN bounce_type = 'hard' THEN 1 ELSE 0 END) as hard_bounce,
-                                SUM(CASE WHEN bounce_type = 'soft' THEN 1 ELSE 0 END) as soft_bounce
-                            ")
-                            ->first(),
-                    ])),
+                Action::make('duplicate')
+                    ->label(__('Duplicate'))
+                    ->icon('heroicon-o-document-duplicate')
+                    ->color('gray')
+                    ->requiresConfirmation()
+                    ->modalHeading(__('Duplicate Template'))
+                    ->modalDescription(__('A copy of this template will be created.'))
+                    ->action(function (EmailTemplate $record) {
+                        $clone = $record->replicate();
+                        $clone->name = $record->name . ' (' . __('copy') . ')';
+                        $clone->save();
+
+                        // Duplicate variations
+                        foreach ($record->variations as $variation) {
+                            $clone->variations()->create([
+                                'subject' => $variation->subject,
+                                'body' => $variation->body,
+                                'sort_order' => $variation->sort_order,
+                            ]);
+                        }
+
+                        return redirect(static::getUrl('edit', ['record' => $clone]));
+                    }),
+                DeleteAction::make(),
             ]);
     }
 

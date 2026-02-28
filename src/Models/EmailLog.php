@@ -32,6 +32,8 @@ class EmailLog extends Model
         'opened_at',
         'clicked',
         'clicked_at',
+        'unsubscribed',
+        'unsubscribed_at',
         'error',
         'mailgun_message_id',
         'bounce_type',
@@ -46,6 +48,8 @@ class EmailLog extends Model
         'opened_at' => 'datetime',
         'clicked' => 'boolean',
         'clicked_at' => 'datetime',
+        'unsubscribed' => 'boolean',
+        'unsubscribed_at' => 'datetime',
         'bounced_at' => 'datetime',
         'complained' => 'boolean',
         'complained_at' => 'datetime',
@@ -90,6 +94,14 @@ class EmailLog extends Model
         $this->update([
             'clicked' => true,
             'clicked_at' => now(),
+        ]);
+    }
+
+    public function markAsUnsubscribed(): void
+    {
+        $this->update([
+            'unsubscribed' => true,
+            'unsubscribed_at' => now(),
         ]);
     }
 

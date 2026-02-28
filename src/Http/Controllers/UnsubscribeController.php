@@ -3,6 +3,7 @@
 namespace JanDev\EmailSystem\Http\Controllers;
 
 use JanDev\EmailSystem\Models\AudienceUser;
+use JanDev\EmailSystem\Models\EmailLog;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 
@@ -32,6 +33,15 @@ class UnsubscribeController extends Controller
                 'success' => false,
                 'message' => __('Invalid or expired unsubscribe link.'),
             ]);
+        }
+
+        // Mark the specific email_log as unsubscribed (campaign tracking)
+        $logId = $request->query('log_id');
+        if ($logId) {
+            $emailLog = EmailLog::find($logId);
+            if ($emailLog && $emailLog->recipient === $email) {
+                $emailLog->markAsUnsubscribed();
+            }
         }
 
         // Unsubscribe all audience entries for this email

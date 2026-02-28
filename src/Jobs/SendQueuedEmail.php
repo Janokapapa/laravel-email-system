@@ -267,6 +267,7 @@ class SendQueuedEmail implements ShouldQueue
             return route('email-system.unsubscribe', [
                 'email' => $this->emailLog->recipient,
                 'token' => $token,
+                'log_id' => $this->emailLog->id,
             ]);
         });
     }

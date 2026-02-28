@@ -481,6 +481,7 @@ class PmtaSync extends Command
             return route('email-system.unsubscribe', [
                 'email' => $emailLog->recipient,
                 'token' => $token,
+                'log_id' => $emailLog->id,
             ]);
         });
     }
