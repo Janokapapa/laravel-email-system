@@ -108,7 +108,7 @@ class EmailTemplateResource extends Resource
 
     protected static function buildPlaceholderHint(): Placeholder
     {
-        $tags = ['{{name}}', '{{email}}'];
+        $tags = ['{{name}}', '{{email}}', '{{unsubscribe=Unsubscribe here}}'];
 
         if (class_exists(\JanDev\UserManagement\Models\Setting::class)) {
             $definitions = AudienceUser::getCustomFieldDefinitions();

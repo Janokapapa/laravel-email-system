@@ -85,24 +85,14 @@ class PmtaSpooler
 
         $rawHtml = (string) $emailLog->message;
 
-        // Replace unsubscribe placeholder links in the HTML
+        // Replace unsubscribe placeholders in the HTML
         if ($unsubscribeUrl) {
-            $rawHtml = $this->replaceUnsubscribeLinks($rawHtml, $unsubscribeUrl);
+            $rawHtml = self::replaceUnsubscribeLinks($rawHtml, $unsubscribeUrl);
         }
 
         // Rewrite links for click tracking (if enabled for this sender)
         if ($this->senderConfig['track_clicks'] ?? true) {
             $rawHtml = self::rewriteLinksForTracking($rawHtml, $emailLog->id, $unsubscribeUrl);
-        }
-
-        // Append unsubscribe footer if URL is available and no unsubscribe link exists in the HTML
-        if ($unsubscribeUrl && stripos($rawHtml, 'unsubscribe') === false) {
-            $escapedUrl = htmlspecialchars($unsubscribeUrl);
-            $rawHtml .= '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top:0;">'
-                . '<tr><td align="center" style="padding:20px 40px;background:rgba(0,0,0,0.3);">'
-                . '<p style="color:#8a8ab0;font-size:11px;margin:0;">'
-                . '<a href="' . $escapedUrl . '" style="color:#e8c94a;text-decoration:underline;">Unsubscribe</a>'
-                . '</p></td></tr></table>';
         }
 
         // Wrap in full HTML document if the template is just a fragment (no <html> tag).
@@ -231,17 +221,27 @@ EOT;
     }
 
     /**
-     * Replace unsubscribe placeholder links in the HTML.
+     * Replace unsubscribe placeholders in the HTML.
      *
-     * Handles: href="#" in anchors containing "unsubscribe" (case-insensitive),
-     * and the explicit {{unsubscribe_url}} placeholder.
+     * Handles:
+     * - {{unsubscribe=Link Text}} → <a href="URL">Link Text</a>
+     * - {{unsubscribe_url}} → raw URL (backward compat)
+     * - href="#" in anchors containing "unsubscribe" text (backward compat)
      */
-    protected function replaceUnsubscribeLinks(string $html, string $url): string
+    public static function replaceUnsubscribeLinks(string $html, string $url): string
     {
-        // Replace {{unsubscribe_url}} placeholder
+        // Replace {{unsubscribe=Link Text}} placeholder with anchor tag
+        $escapedUrl = htmlspecialchars($url);
+        $html = preg_replace_callback(
+            '/\{\{unsubscribe=(.+?)\}\}/',
+            fn ($m) => '<a href="' . $escapedUrl . '" style="color:inherit;text-decoration:underline;">' . $m[1] . '</a>',
+            $html
+        );
+
+        // Replace {{unsubscribe_url}} placeholder (backward compat)
         $html = str_replace('{{unsubscribe_url}}', $url, $html);
 
-        // Replace href="#" in anchor tags that contain "unsubscribe" text
+        // Replace href="#" in anchor tags that contain "unsubscribe" text (backward compat)
         $html = preg_replace_callback(
             '/<a\b([^>]*?)href\s*=\s*"#"([^>]*?)>(.*?)<\/a>/is',
             function ($match) use ($url) {

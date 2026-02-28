@@ -108,15 +108,21 @@ class SendQueuedEmail implements ShouldQueue
         DB::transaction(function () use ($senderConfig) {
             $unsubscribeUrl = $this->generateUnsubscribeUrl();
 
-            // Rewrite links for click tracking (in-memory only, not persisted)
+            // Process message in-memory (not persisted)
             $originalMessage = $this->emailLog->message;
-            if ($senderConfig['track_clicks'] ?? true) {
-                $this->emailLog->message = PmtaSpooler::rewriteLinksForTracking(
-                    (string) $originalMessage,
-                    $this->emailLog->id,
-                    $unsubscribeUrl
-                );
+            $processed = (string) $originalMessage;
+
+            // Replace unsubscribe placeholders
+            if ($unsubscribeUrl) {
+                $processed = PmtaSpooler::replaceUnsubscribeLinks($processed, $unsubscribeUrl);
             }
+
+            // Rewrite links for click tracking
+            if ($senderConfig['track_clicks'] ?? true) {
+                $processed = PmtaSpooler::rewriteLinksForTracking($processed, $this->emailLog->id, $unsubscribeUrl);
+            }
+
+            $this->emailLog->message = $processed;
 
             $mailer = $senderConfig['smtp_mailer'] ?? config('email-system.smtp.mailer', 'smtp');
 
@@ -126,7 +132,7 @@ class SendQueuedEmail implements ShouldQueue
                 $senderConfig
             ));
 
-            // Restore original message so it's not persisted with tracking URLs
+            // Restore original message
             $this->emailLog->message = $originalMessage;
 
             $this->emailLog->update([
@@ -154,8 +160,15 @@ class SendQueuedEmail implements ShouldQueue
 
             $domain = $senderConfig['mailgun_domain'] ?? config('email-system.mailgun.domain');
 
-            // Rewrite links for click tracking before rendering (if enabled)
+            // Process message content before rendering
             $messageContent = (string) $this->emailLog->message;
+
+            // Replace unsubscribe placeholders
+            if ($unsubscribeUrl) {
+                $messageContent = PmtaSpooler::replaceUnsubscribeLinks($messageContent, $unsubscribeUrl);
+            }
+
+            // Rewrite links for click tracking (if enabled)
             if ($senderConfig['track_clicks'] ?? true) {
                 $messageContent = PmtaSpooler::rewriteLinksForTracking(
                     $messageContent,

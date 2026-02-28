@@ -61,14 +61,6 @@
                                     <p style="color: #b0adc5; font-size: 12px; text-align: center;">
                                         &copy; {{ date('Y') }} {{ config('app.name') }}. {{ __('All rights reserved.') }}
                                     </p>
-
-                                    @if (isset($unsubscribeUrl))
-                                        <p style="font-size: 12px; text-align: center;">
-                                            <a href="{{ $unsubscribeUrl }}" style="color: #b0adc5; text-decoration: underline;">
-                                                {{ __('Unsubscribe from newsletter') }}
-                                            </a>
-                                        </p>
-                                    @endif
                                 </td>
                             </tr>
                         </table>
