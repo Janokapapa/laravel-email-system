@@ -5,6 +5,7 @@ namespace JanDev\EmailSystem\Jobs;
 use Exception;
 use JanDev\EmailSystem\Models\EmailLog;
 use JanDev\EmailSystem\Models\AudienceUser;
+use JanDev\EmailSystem\Models\JobTracker;
 use JanDev\EmailSystem\Mail\NewsletterMail;
 use JanDev\EmailSystem\Support\SenderResolver;
 use Illuminate\Bus\Queueable;
@@ -39,6 +40,11 @@ class SendQueuedEmails implements ShouldQueue
         if ($emails->isEmpty()) {
             Log::channel('queue')->info('SendQueuedEmails: No queued emails found');
 
+            // Mark any running send trackers as completed (queue drained)
+            JobTracker::where('type', 'email_send')
+                ->where('status', 'running')
+                ->each(fn ($t) => $t->markCompleted());
+
             if (Cache::get('email_system_queue_active')) {
                 $this->sendCompletionNotification();
                 Cache::forget('email_system_queue_active');
@@ -47,6 +53,19 @@ class SendQueuedEmails implements ShouldQueue
         }
 
         Cache::put('email_system_queue_active', true, now()->addHours(24));
+
+        // Get or create a send tracker for this run
+        $totalQueued = EmailLog::where('status', 'queued')
+            ->where('created_at', '>=', now()->subDay())
+            ->count();
+
+        $tracker = JobTracker::where('type', 'email_send')
+            ->where('status', 'running')
+            ->first();
+
+        if (!$tracker) {
+            $tracker = JobTracker::start('email_send', 'Sending emails', $totalQueued);
+        }
 
         Log::channel('queue')->info("SendQueuedEmails: Processing {$emails->count()} queued emails");
 
@@ -85,8 +104,11 @@ class SendQueuedEmails implements ShouldQueue
                 $senderConfig = $email->sender_name ? SenderResolver::get($email->sender_name) : null;
                 $this->sendSingleViaSmtp($email, $senderConfig);
                 $totalSent++;
+                $tracker->incrementProgress();
             } catch (Exception $e) {
                 $totalFailed++;
+                $tracker->incrementFailed();
+                $tracker->incrementProgress();
                 Log::channel('queue')->error("SMTP send failed for {$email->recipient}: " . $e->getMessage());
             }
 
@@ -101,12 +123,18 @@ class SendQueuedEmails implements ShouldQueue
             $result = $this->sendViaMailgunBatch($senderEmails, $senderConfig);
             $totalSent += $result['sent'];
             $totalFailed += $result['failed'];
+            $tracker->incrementProgress($result['sent'] + $result['failed']);
+            if ($result['failed'] > 0) {
+                $tracker->incrementFailed($result['failed']);
+            }
         }
 
         // Mark old queued emails as skipped
         EmailLog::where('status', 'queued')
             ->where('created_at', '<', now()->subDay())
             ->update(['status' => 'skipped', 'error' => 'Email too old to process']);
+
+        $tracker->flush();
 
         $duration = round(microtime(true) - $startTime, 2);
         Log::channel('queue')->info("SendQueuedEmails completed: {$totalSent} sent, {$totalFailed} failed in {$duration}s");

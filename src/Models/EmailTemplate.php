@@ -12,6 +12,11 @@ class EmailTemplate extends Model
         'body',
     ];
 
+    public function variations()
+    {
+        return $this->hasMany(EmailTemplateVariation::class)->orderBy('sort_order');
+    }
+
     public function emailLogs()
     {
         return $this->hasMany(EmailLog::class);

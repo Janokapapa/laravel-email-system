@@ -6,6 +6,7 @@ use JanDev\EmailSystem\Models\AudienceUser;
 use JanDev\EmailSystem\Models\EmailAudienceGroup;
 use JanDev\EmailSystem\Models\EmailLog;
 use JanDev\EmailSystem\Models\EmailTemplate;
+use JanDev\EmailSystem\Models\JobTracker;
 use JanDev\EmailSystem\Support\SenderResolver;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -48,10 +49,21 @@ class QueueEmailsForAudience implements ShouldQueue
     {
         $startTime = microtime(true);
 
-        $template = EmailTemplate::findOrFail($this->templateId);
+        $template = EmailTemplate::with('variations')->findOrFail($this->templateId);
         $audienceGroup = EmailAudienceGroup::findOrFail($this->audienceGroupId);
 
         Log::channel('queue')->info("QueueEmailsForAudience: Starting for template {$template->name}, audience {$audienceGroup->name}");
+
+        $totalUsers = $audienceGroup->audienceUsers()
+            ->where('is_active', true)
+            ->where('bounced', false)
+            ->count();
+
+        $tracker = JobTracker::start('email_queue', "Queueing — {$template->name} → {$audienceGroup->name}", $totalUsers, [
+            'template_id' => $this->templateId,
+            'group_id' => $this->audienceGroupId,
+            'sender_name' => $this->senderName,
+        ]);
 
         // Get all bounced/inactive emails across ALL audience groups
         $blockedFromAudience = AudienceUser::where(function ($q) {
@@ -96,6 +108,19 @@ class QueueEmailsForAudience implements ShouldQueue
             }
         }
 
+        // Build content pool: original template first, then variations
+        // Each entry: ['subject' => ..., 'body' => ..., 'variation_id' => null|int]
+        $contentPool = [
+            ['subject' => $template->subject, 'body' => $template->body, 'variation_id' => null],
+        ];
+        foreach ($template->variations as $variation) {
+            $contentPool[] = [
+                'subject'      => $variation->subject,
+                'body'         => $variation->body,
+                'variation_id' => $variation->id,
+            ];
+        }
+
         // Prepare batch insert data
         $batchData = [];
         $batchSize = 1000;
@@ -111,7 +136,7 @@ class QueueEmailsForAudience implements ShouldQueue
             ->chunkById(1000, function ($users) use (
                 $template, $audienceGroup, $sender, $blockedEmails, $alreadySentEmails,
                 &$batchData, &$queuedCount, &$skippedCount, &$yahooSkippedCount, &$alreadySentSkippedCount, $batchSize,
-                $initialStatus
+                $initialStatus, $tracker, $contentPool
             ) {
                 foreach ($users as $user) {
                     // Skip if already sent/queued for this template
@@ -132,18 +157,24 @@ class QueueEmailsForAudience implements ShouldQueue
                         continue;
                     }
 
+                    // Pick content: random when pool > 1, otherwise the single entry
+                    $content = count($contentPool) > 1
+                        ? $contentPool[array_rand($contentPool)]
+                        : $contentPool[0];
+
                     $batchData[] = [
-                        'email_template_id' => $template->id,
+                        'email_template_id'       => $template->id,
                         'email_audience_group_id' => $audienceGroup->id,
-                        'recipient' => $user->email,
-                        'recipient_name' => $user->name,
-                        'subject' => $user->resolvePlaceholders($template->subject),
-                        'message' => $user->resolvePlaceholders($template->body),
-                        'sender' => $sender,
-                        'sender_name' => $this->senderName,
-                        'status' => $initialStatus,
-                        'created_at' => now(),
-                        'updated_at' => now(),
+                        'recipient'               => $user->email,
+                        'recipient_name'          => $user->name,
+                        'subject'                 => $user->resolvePlaceholders($content['subject']),
+                        'message'                 => $user->resolvePlaceholders($content['body']),
+                        'sender'                  => $sender,
+                        'sender_name'             => $this->senderName,
+                        'variation_id'            => $content['variation_id'],
+                        'status'                  => $initialStatus,
+                        'created_at'              => now(),
+                        'updated_at'              => now(),
                     ];
                     $queuedCount++;
 
@@ -153,12 +184,16 @@ class QueueEmailsForAudience implements ShouldQueue
                         $batchData = [];
                     }
                 }
+
+                $tracker->incrementProgress($users->count());
             });
 
         // Insert remaining batch
         if (!empty($batchData)) {
             EmailLog::insert($batchData);
         }
+
+        $tracker->markCompleted();
 
         $duration = round(microtime(true) - $startTime, 2);
 
@@ -179,6 +214,13 @@ class QueueEmailsForAudience implements ShouldQueue
 
     public function failed(\Throwable $exception): void
     {
+        // Mark any running tracker for this job as failed
+        JobTracker::where('type', 'email_queue')
+            ->where('status', 'running')
+            ->where('meta->template_id', $this->templateId)
+            ->where('meta->group_id', $this->audienceGroupId)
+            ->each(fn ($t) => $t->markFailed($exception->getMessage()));
+
         Log::channel('queue')->error("QueueEmailsForAudience failed: " . $exception->getMessage());
 
         $failureCallback = resolve_callback(config('email-system.queue_failure_callback'));

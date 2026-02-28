@@ -8,6 +8,7 @@ use JanDev\EmailSystem\Filament\Resources\EmailTemplateResource;
 use JanDev\EmailSystem\Filament\Resources\EmailAudienceGroupResource;
 use JanDev\EmailSystem\Filament\Resources\EmailLogResource;
 use JanDev\EmailSystem\Filament\Resources\AudienceUserResource;
+use JanDev\EmailSystem\Filament\Widgets\JobProgressWidget;
 
 class EmailSystemPlugin implements Plugin
 {
@@ -23,6 +24,10 @@ class EmailSystemPlugin implements Plugin
             EmailAudienceGroupResource::class,
             EmailLogResource::class,
             AudienceUserResource::class,
+        ]);
+
+        $panel->widgets([
+            JobProgressWidget::class,
         ]);
     }
 

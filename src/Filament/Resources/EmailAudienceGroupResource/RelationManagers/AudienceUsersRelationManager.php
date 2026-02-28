@@ -2,7 +2,9 @@
 
 namespace JanDev\EmailSystem\Filament\Resources\EmailAudienceGroupResource\RelationManagers;
 
+use JanDev\EmailSystem\Jobs\VerifyEmailsZeroBounceJob;
 use JanDev\EmailSystem\Models\AudienceUser;
+use JanDev\EmailSystem\Services\ZeroBounce;
 use JanDev\EmailSystem\Support\CustomFieldComponents;
 use JanDev\EmailSystem\Support\CsvHelper;
 use Filament\Resources\RelationManagers\RelationManager;
@@ -11,6 +13,7 @@ use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\FileUpload;
+use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Select;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
@@ -32,6 +35,8 @@ class AudienceUsersRelationManager extends RelationManager
 {
     /** @var array<int, string> CSV column headers detected from uploaded file */
     public array $csvColumnOptions = [];
+    /** @var bool Whether the uploaded CSV has a header row */
+    public bool $csvHasHeader = true;
     protected static string $relationship = 'audienceUsers';
 
     protected static ?string $recordTitleAttribute = 'name';
@@ -78,6 +83,13 @@ class AudienceUsersRelationManager extends RelationManager
                     ->trueIcon('heroicon-s-check-circle')
                     ->falseIcon('heroicon-s-x-circle'),
 
+                TextColumn::make('zerobounce_status')
+                    ->label(__('ZeroBounce'))
+                    ->badge()
+                    ->color(fn (?string $state): string => ZeroBounce::getStatusColor($state ?? 'unverified'))
+                    ->formatStateUsing(fn (?string $state): string => ZeroBounce::getStatusLabel($state ?? 'unverified'))
+                    ->visible(fn () => ZeroBounce::isEnabled()),
+
                 ...CustomFieldComponents::tableColumns(),
             ])
             ->filters([
@@ -115,6 +127,18 @@ class AudienceUsersRelationManager extends RelationManager
                         0 => __('Inactive'),
                     ])
                     ->placeholder(__('All Statuses')),
+
+                SelectFilter::make('zerobounce_status')
+                    ->label(__('ZeroBounce Status'))
+                    ->options([
+                        'unverified' => __('Unverified'),
+                        'valid'      => __('Valid'),
+                        'catch_all'  => __('Catch-All'),
+                        'unknown'    => __('Unknown'),
+                        'invalid'    => __('Invalid'),
+                    ])
+                    ->placeholder(__('All ZB Statuses'))
+                    ->visible(fn () => ZeroBounce::isEnabled()),
 
                 ...CustomFieldComponents::tableFilters(),
             ])
@@ -294,6 +318,67 @@ class AudienceUsersRelationManager extends RelationManager
                     ->requiresConfirmation(__('Are you sure you want to add users in this date range?'))
                     ->icon('heroicon-o-calendar-days'),
 
+                // ZeroBounce email verification
+                Action::make('verifyZerobounce')
+                    ->label(__('Verify Emails (ZeroBounce)'))
+                    ->icon('heroicon-o-shield-check')
+                    ->visible(fn () => ZeroBounce::isEnabled())
+                    ->requiresConfirmation()
+                    ->modalHeading(__('Verify Emails with ZeroBounce'))
+                    ->modalDescription(function () {
+                        $groupId = $this->getOwnerRecord()->id;
+                        $count = AudienceUser::where('email_audience_group_id', $groupId)
+                            ->where('zerobounce_status', 'unverified')
+                            ->count();
+                        $desc = __('This will verify :count unverified email address(es). Each verification uses 1 ZeroBounce credit.', ['count' => $count]);
+                        if (config('queue.default') === 'sync') {
+                            $desc .= "\n\n⚠️ " . __('WARNING: Queue is set to sync. This job will block the HTTP request and may time out for large groups. Please configure a proper queue driver (e.g. database) first.');
+                        }
+                        return $desc;
+                    })
+                    ->action(function () {
+                        if (config('queue.default') === 'sync') {
+                            Notification::make()
+                                ->title(__('Queue Not Configured'))
+                                ->body(__('Queue is set to sync. Please configure a proper queue driver (e.g. database) before running ZeroBounce verification to avoid blocking the HTTP request.'))
+                                ->danger()
+                                ->send();
+                            return;
+                        }
+
+                        $groupId = $this->getOwnerRecord()->id;
+                        $count = AudienceUser::where('email_audience_group_id', $groupId)
+                            ->where('zerobounce_status', 'unverified')
+                            ->count();
+
+                        VerifyEmailsZeroBounceJob::dispatch($groupId, auth()->id());
+
+                        $credits = null;
+                        try {
+                            $credits = ZeroBounce::getCredits();
+                        } catch (\Throwable) {
+                            // Credits check is informational — never block the dispatch
+                        }
+
+                        if ($credits !== null && $credits === 0) {
+                            Notification::make()
+                                ->title(__('Warning: No ZeroBounce Credits'))
+                                ->body(__('Your ZeroBounce account has 0 credits. The verification job was dispatched but emails will not be verified until you purchase more credits.'))
+                                ->warning()
+                                ->send();
+                        } else {
+                            $creditsText = ($credits !== null)
+                                ? ' ' . __('Remaining credits: :credits', ['credits' => $credits])
+                                : '';
+
+                            Notification::make()
+                                ->title(__('Verification Started'))
+                                ->body(__('ZeroBounce verification job dispatched for :count email(s).', ['count' => $count]) . $creditsText)
+                                ->success()
+                                ->send();
+                        }
+                    }),
+
                 // Upload CSV with column mapping
                 Action::make('uploadCsv')
                     ->label(__('Upload CSV'))
@@ -345,6 +430,9 @@ class AudienceUsersRelationManager extends RelationManager
                         return;
                     }
 
+                    // Store header detection result
+                    $this->csvHasHeader = $detected['has_header'];
+
                     // Store options in Livewire property so Select closures can read them
                     $options = ['' => __('-- Skip --')];
                     foreach ($detected['headers'] as $i => $header) {
@@ -354,8 +442,16 @@ class AudienceUsersRelationManager extends RelationManager
 
                     // Auto-detect and pre-fill mapping selects
                     $headers = $detected['headers'];
-                    $nameIdx = CsvHelper::autoDetectColumn($headers, ['name', 'név', 'nev', 'username']);
-                    $emailIdx = CsvHelper::autoDetectColumn($headers, ['email', 'e-mail', 'emailcim', 'mail']);
+                    $nameIdx = CsvHelper::autoDetectColumn($headers, [
+                        'name', 'név', 'nev', 'username', 'user_name', 'full_name',
+                        'fullname', 'teljes_nev', 'teljes_név', 'felhasználónév',
+                        'first_name', 'keresztnév', 'contact_name', 'display_name',
+                    ]);
+                    $emailIdx = CsvHelper::autoDetectColumn($headers, [
+                        'email', 'e-mail', 'emailcim', 'email_cím', 'mail',
+                        'email_address', 'emailaddress', 'e_mail', 'e_mail_cim',
+                        'email_cim', 'user_email', 'contact_email',
+                    ]);
                     if ($nameIdx !== null) {
                         $set('map_name', $nameIdx);
                     }
@@ -363,17 +459,52 @@ class AudienceUsersRelationManager extends RelationManager
                         $set('map_email', $emailIdx);
                     }
 
+                    $zbIdx = CsvHelper::autoDetectColumn($headers, [
+                        'zerobounce_status', 'zerobounce', 'zb_status', 'zb',
+                        'zerobounce_statusz', 'bounce_status', 'email_status',
+                        'verification_status', 'email_verification',
+                    ]);
+                    if ($zbIdx !== null) {
+                        $set('map_zerobounce_status', $zbIdx);
+                    }
+
+                    $countryDetected = false;
+                    $currencyDetected = false;
                     foreach (AudienceUser::getCustomFieldDefinitions() as $def) {
                         $slug = $def['slug'] ?? null;
+                        $defName = $def['name'] ?? null;
                         if (!$slug) {
                             continue;
                         }
-                        $idx = CsvHelper::autoDetectColumn($headers, [$slug]);
+                        $aliases = [$slug];
+                        if ($defName) {
+                            $aliases[] = $defName;
+                        }
+                        $idx = CsvHelper::autoDetectColumn($headers, $aliases);
                         if ($idx !== null) {
                             $set('map_cf_' . $slug, $idx);
+                            if ($slug === 'country') {
+                                $countryDetected = true;
+                            }
+                            if ($slug === 'currency') {
+                                $currencyDetected = true;
+                            }
                         }
                     }
+
+                    if (!$countryDetected) {
+                        $set('default_country', 'GB');
+                    }
+                    if (!$currencyDetected) {
+                        $set('default_currency', 'GBP');
+                    }
                 }),
+
+            Placeholder::make('header_detection_hint')
+                ->content(fn () => $this->csvHasHeader
+                    ? __('✓ Header row detected — first row will be skipped.')
+                    : __('⚠ No header row detected — all rows will be imported as data.'))
+                ->visible(fn (): bool => !empty($this->csvColumnOptions)),
 
             Select::make('map_name')
                 ->label(__('Name'))
@@ -386,17 +517,63 @@ class AudienceUsersRelationManager extends RelationManager
                 ->options(fn (): array => $this->csvColumnOptions)
                 ->visible(fn (): bool => !empty($this->csvColumnOptions))
                 ->required(fn (): bool => !empty($this->csvColumnOptions)),
+
+            Select::make('map_zerobounce_status')
+                ->label(__('ZeroBounce Status'))
+                ->options(fn (): array => $this->csvColumnOptions)
+                ->visible(fn (): bool => !empty($this->csvColumnOptions)),
         ];
 
+        $hasCountryField = false;
+        $hasCurrencyField = false;
         foreach (AudienceUser::getCustomFieldDefinitions() as $def) {
             $slug = $def['slug'] ?? null;
             if (!$slug) {
                 continue;
             }
-            $fields[] = Select::make('map_cf_' . $slug)
+            $select = Select::make('map_cf_' . $slug)
                 ->label($def['name'] ?? $slug)
                 ->options(fn (): array => $this->csvColumnOptions)
                 ->visible(fn (): bool => !empty($this->csvColumnOptions));
+
+            if ($slug === 'country') {
+                $select = $select->live();
+                $hasCountryField = true;
+            }
+
+            if ($slug === 'currency') {
+                $select = $select->live();
+                $hasCurrencyField = true;
+            }
+
+            $fields[] = $select;
+        }
+
+        if ($hasCountryField) {
+            $fields[] = Select::make('default_country')
+                ->label(__('Default Country'))
+                ->options(CsvHelper::getCountryOptions())
+                ->searchable()
+                ->live()
+                ->helperText(__('Applied to all imported users when no country column is mapped'))
+                ->visible(fn (Get $get): bool => !empty($this->csvColumnOptions) && (($get('map_cf_country') ?? '') === ''))
+                ->afterStateUpdated(function ($state, Get $get, Set $set) use ($hasCurrencyField) {
+                    if ($hasCurrencyField && $state && ($get('map_cf_currency') ?? '') === '' && ($get('default_currency') ?? '') === '') {
+                        $currency = CsvHelper::currencyForCountry($state);
+                        if ($currency) {
+                            $set('default_currency', $currency);
+                        }
+                    }
+                });
+        }
+
+        if ($hasCurrencyField) {
+            $fields[] = Select::make('default_currency')
+                ->label(__('Default Currency'))
+                ->options(CsvHelper::getCurrencyOptions())
+                ->searchable()
+                ->helperText(__('Applied to all imported users when no currency column is mapped. Auto-filled from country.'))
+                ->visible(fn (Get $get): bool => !empty($this->csvColumnOptions) && (($get('map_cf_currency') ?? '') === ''));
         }
 
         return $fields;
@@ -452,6 +629,7 @@ class AudienceUsersRelationManager extends RelationManager
 
         $nameIdx = ($data['map_name'] ?? '') !== '' ? (int) $data['map_name'] : null;
         $emailIdx = ($data['map_email'] ?? '') !== '' ? (int) $data['map_email'] : null;
+        $zbIdx = ($data['map_zerobounce_status'] ?? '') !== '' ? (int) $data['map_zerobounce_status'] : null;
 
         if ($nameIdx === null || $emailIdx === null) {
             Notification::make()
@@ -479,6 +657,22 @@ class AudienceUsersRelationManager extends RelationManager
             }
         }
 
+        // Default country when no country column is mapped
+        $defaultCountry = null;
+        if (!isset($cfMapping['country']) && !empty($data['default_country']) && isset($defBySlug['country'])) {
+            $defaultCountry = $data['default_country'];
+        }
+
+        // Default currency when no currency column is mapped
+        $defaultCurrency = null;
+        if (!isset($cfMapping['currency']) && isset($defBySlug['currency'])) {
+            if (!empty($data['default_currency'])) {
+                $defaultCurrency = $data['default_currency'];
+            } elseif ($defaultCountry) {
+                $defaultCurrency = CsvHelper::currencyForCountry($defaultCountry);
+            }
+        }
+
         // Read file and detect separator
         $lines = file($csvPath);
         Storage::disk('local')->delete($data['csv_file']);
@@ -493,11 +687,18 @@ class AudienceUsersRelationManager extends RelationManager
         $commas = substr_count($headerLine, ',');
         $separator = $semicolons >= $commas ? ';' : ',';
 
-        array_shift($lines); // skip header
+        if ($this->csvHasHeader) {
+            array_shift($lines); // skip header row — first row contains labels
+        }
 
         $addedCount = 0;
-        $skippedCount = 0;
+        $updatedCount = 0;
+        $skippedInvalid = 0;
+        $skippedInactive = 0;
+        $skippedOtherGroup = 0;
         $typeErrors = [];
+
+        $validZbStatuses = ['unverified', 'valid', 'catch_all', 'unknown', 'invalid'];
 
         foreach ($lines as $line) {
             $line = trim($line);
@@ -515,8 +716,17 @@ class AudienceUsersRelationManager extends RelationManager
             );
 
             if ($validator->fails()) {
-                $skippedCount++;
+                $skippedInvalid++;
                 continue;
+            }
+
+            // Parse zerobounce status
+            $zbStatus = null;
+            if ($zbIdx !== null) {
+                $rawZb = strtolower(trim($row[$zbIdx] ?? ''));
+                if ($rawZb !== '' && in_array($rawZb, $validZbStatuses, true)) {
+                    $zbStatus = $rawZb;
+                }
             }
 
             // Parse custom fields
@@ -534,34 +744,81 @@ class AudienceUsersRelationManager extends RelationManager
                 }
             }
 
+            if ($defaultCountry && !isset($customFields['country'])) {
+                $customFields['country'] = $defaultCountry;
+            }
+
+            if ($defaultCurrency && !isset($customFields['currency'])) {
+                $customFields['currency'] = $defaultCurrency;
+            }
+
             $isInactiveInOtherGroups = AudienceUser::where('email', $email)
                 ->where('is_active', false)
                 ->where('email_audience_group_id', '<>', $groupId)
                 ->exists();
 
             if ($isInactiveInOtherGroups) {
-                $skippedCount++;
+                $skippedInactive++;
                 continue;
             }
 
+            // Check if user already exists in this group — update instead of skip
+            $existing = AudienceUser::where('email', $email)
+                ->where('email_audience_group_id', $groupId)
+                ->first();
+
+            if ($existing) {
+                $updateData = ['name' => $name];
+                if (!empty($customFields)) {
+                    $updateData['custom_fields'] = array_merge($existing->custom_fields ?? [], $customFields);
+                }
+                if ($zbStatus !== null) {
+                    $updateData['zerobounce_status'] = $zbStatus;
+                    $updateData['zerobounce_checked_at'] = now();
+                }
+                $existing->update($updateData);
+                $updatedCount++;
+                continue;
+            }
+
+            // Check if email exists in other groups
             if (AudienceUser::where('email', $email)->exists()) {
-                $skippedCount++;
+                $skippedOtherGroup++;
                 continue;
             }
 
-            AudienceUser::create([
+            $createData = [
                 'name' => $name,
                 'email' => $email,
                 'is_active' => true,
                 'email_audience_group_id' => $groupId,
                 'custom_fields' => $customFields,
-            ]);
+            ];
+            if ($zbStatus !== null) {
+                $createData['zerobounce_status'] = $zbStatus;
+                $createData['zerobounce_checked_at'] = now();
+            }
+            AudienceUser::create($createData);
             $addedCount++;
+        }
+
+        $bodyParts = [
+            __('Added: :count', ['count' => $addedCount]),
+            __('Updated: :count', ['count' => $updatedCount]),
+        ];
+        if ($skippedInvalid > 0) {
+            $bodyParts[] = __('Skipped (invalid): :count', ['count' => $skippedInvalid]);
+        }
+        if ($skippedInactive > 0) {
+            $bodyParts[] = __('Skipped (inactive in other group): :count', ['count' => $skippedInactive]);
+        }
+        if ($skippedOtherGroup > 0) {
+            $bodyParts[] = __('Skipped (exists in other group): :count', ['count' => $skippedOtherGroup]);
         }
 
         Notification::make()
             ->title(__('CSV Upload Complete'))
-            ->body(__('Added: :added, Skipped: :skipped', ['added' => $addedCount, 'skipped' => $skippedCount]))
+            ->body(implode("\n", $bodyParts))
             ->success()
             ->send();
 

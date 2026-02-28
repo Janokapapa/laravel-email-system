@@ -19,6 +19,9 @@ class AudienceUser extends Model
         'bounced_at',
         'sent_at',
         'custom_fields',
+        'zerobounce_status',
+        'zerobounce_sub_status',
+        'zerobounce_checked_at',
     ];
 
     protected $casts = [
@@ -26,7 +29,8 @@ class AudienceUser extends Model
         'bounced'     => 'boolean',
         'bounced_at'  => 'datetime',
         'sent_at'     => 'datetime',
-        'custom_fields' => 'array',
+        'custom_fields'          => 'array',
+        'zerobounce_checked_at'  => 'datetime',
     ];
 
     /**

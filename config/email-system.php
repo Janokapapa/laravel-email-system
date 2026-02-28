@@ -167,6 +167,29 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | ZeroBounce Email Verification
+    |--------------------------------------------------------------------------
+    |
+    | ZeroBounce is an email verification service. Configure your API key and
+    | enable verification. Each API call costs 1 credit.
+    |
+    */
+    'zerobounce' => [
+        'api_key' => env('ZEROBOUNCE_API_KEY'),
+        'enabled' => env('ZEROBOUNCE_ENABLED', false),
+        'delay_ms' => env('ZEROBOUNCE_DELAY_MS', 200),
+    ],
+
+    // Called when ZeroBounce verification job completes
+    // function(int $userId, array $stats) { ... }
+    'zerobounce_completion_callback' => null,
+
+    // Called when ZeroBounce verification job fails
+    // function(int $userId, string $error) { ... }
+    'zerobounce_failure_callback' => null,
+
+    /*
+    |--------------------------------------------------------------------------
     | Cleanup Callback
     |--------------------------------------------------------------------------
     |

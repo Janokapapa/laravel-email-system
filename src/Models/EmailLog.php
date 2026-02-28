@@ -12,6 +12,7 @@ class EmailLog extends Model
     protected $fillable = [
         'email_template_id',
         'email_audience_group_id',
+        'variation_id',
         'reference_type',
         'reference_id',
         'recipient',

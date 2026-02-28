@@ -7,6 +7,7 @@ use JanDev\EmailSystem\Jobs\QueueEmailsForAudience;
 use JanDev\EmailSystem\Models\AudienceUser;
 use JanDev\EmailSystem\Models\EmailAudienceGroup;
 use JanDev\EmailSystem\Models\EmailLog;
+use JanDev\EmailSystem\Models\EmailTemplateVariation;
 use JanDev\EmailSystem\Support\SenderResolver;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\Action;
@@ -29,6 +30,26 @@ class EditEmailTemplate extends EditRecord
     public ?int $pendingAlreadySentCount = null;
     public ?string $pendingSenderName = null;
 
+    protected function mutateFormDataBeforeFill(array $data): array
+    {
+        $data['variations'] = $this->record
+            ->variations()
+            ->orderBy('sort_order')
+            ->get()
+            ->map(fn ($v) => [
+                'subject' => $v->subject,
+                'body'    => $v->body,
+            ])
+            ->toArray();
+
+        return $data;
+    }
+
+    protected function afterSave(): void
+    {
+        EmailTemplateVariation::syncForTemplate($this->record, $this->data['variations'] ?? []);
+    }
+
     protected function getHeaderActions(): array
     {
         return [
@@ -45,36 +66,53 @@ class EditEmailTemplate extends EditRecord
             ->label(__('Send Test Email'))
             ->icon('heroicon-o-paper-airplane')
             ->color('gray')
-            ->form([
-                TextInput::make('test_email')
-                    ->label(__('Email Address'))
-                    ->email()
-                    ->required()
-                    ->default(auth()->user()->email),
-                Select::make('senderName')
-                    ->label(__('Sender'))
-                    ->options(fn () => SenderResolver::options())
-                    ->default(fn () => SenderResolver::getDefault()['name'] ?? null)
-                    ->placeholder(__('Default (from config)'))
-                    ->searchable(),
-            ])
+            ->form(function () {
+                $variationOptions = ['original' => __('Original (default)'), 'random' => __('Random')];
+                foreach ($this->record->variations()->orderBy('sort_order')->get() as $index => $v) {
+                    $variationOptions[(string) $v->id] = __('Variation') . ' ' . ($index + 1) . ': ' . $v->subject;
+                }
+
+                return [
+                    TextInput::make('test_email')
+                        ->label(__('Email Address'))
+                        ->email()
+                        ->required()
+                        ->default(auth()->user()->email),
+                    Select::make('senderName')
+                        ->label(__('Sender'))
+                        ->options(fn () => SenderResolver::options())
+                        ->default(fn () => SenderResolver::getDefault()['name'] ?? null)
+                        ->placeholder(__('Default (from config)'))
+                        ->searchable(),
+                    Select::make('variation')
+                        ->label(__('Variation'))
+                        ->options($variationOptions)
+                        ->default('original')
+                        ->visible(count($variationOptions) > 2),
+                ];
+            })
             ->action(function (array $data) {
-                $senderName = $data['senderName'] ?? null;
+                $senderName   = $data['senderName'] ?? null;
                 $senderConfig = $senderName ? SenderResolver::get($senderName) : null;
                 $senderAddress = $senderConfig['from_address'] ?? config('email-system.from.address');
 
-                // PMTA emails go directly to 'spooled' to be processed by PmtaSync
                 $initialStatus = ($senderConfig && ($senderConfig['type'] ?? '') === 'pmta')
                     ? 'spooled'
                     : 'queued';
 
+                // Resolve content based on chosen variation
+                $variationChoice = $data['variation'] ?? 'original';
+                [$selectedSubject, $selectedBody, $selectedVariationId] = $this->resolveVariationContent($variationChoice);
+
                 EmailLog::create([
-                    'recipient' => $data['test_email'],
-                    'subject' => '[TEST] ' . $this->record->subject,
-                    'message' => $this->record->body,
-                    'sender' => $senderAddress,
-                    'sender_name' => $senderName,
-                    'status' => $initialStatus,
+                    'email_template_id' => $this->record->id,
+                    'recipient'         => $data['test_email'],
+                    'subject'           => '[TEST] ' . $selectedSubject,
+                    'message'           => $selectedBody,
+                    'sender'            => $senderAddress,
+                    'sender_name'       => $senderName,
+                    'variation_id'      => $selectedVariationId,
+                    'status'            => $initialStatus,
                 ]);
 
                 Notification::make()
@@ -83,6 +121,32 @@ class EditEmailTemplate extends EditRecord
                     ->success()
                     ->send();
             });
+    }
+
+    private function resolveVariationContent(string $choice): array
+    {
+        $variations = $this->record->variations()->orderBy('sort_order')->get();
+
+        if ($choice === 'original' || $variations->isEmpty()) {
+            return [$this->record->subject, $this->record->body, null];
+        }
+
+        if ($choice === 'random') {
+            $pool = [['subject' => $this->record->subject, 'body' => $this->record->body, 'id' => null]];
+            foreach ($variations as $v) {
+                $pool[] = ['subject' => $v->subject, 'body' => $v->body, 'id' => $v->id];
+            }
+            $picked = $pool[array_rand($pool)];
+            return [$picked['subject'], $picked['body'], $picked['id']];
+        }
+
+        // Specific variation ID
+        $variation = $variations->firstWhere('id', (int) $choice);
+        if ($variation) {
+            return [$variation->subject, $variation->body, $variation->id];
+        }
+
+        return [$this->record->subject, $this->record->body, null];
     }
 
     protected function sendMailAction(): Action
@@ -131,8 +195,8 @@ class EditEmailTemplate extends EditRecord
             ])
             ->action(function (array $data) {
                 $audienceGroup = EmailAudienceGroup::findOrFail($data['audienceGroupId']);
-                $skipYahoo = $data['skipYahoo'] ?? false;
-                $senderName = $data['senderName'] ?? null;
+                $skipYahoo     = $data['skipYahoo'] ?? false;
+                $senderName    = $data['senderName'] ?? null;
 
                 // Validate sender still exists
                 if ($senderName && !SenderResolver::get($senderName)) {
@@ -192,11 +256,11 @@ class EditEmailTemplate extends EditRecord
                 }
 
                 // Store data - the confirm button will appear in the header
-                $this->pendingAudienceGroupId = $audienceGroup->id;
-                $this->pendingSkipYahoo = $skipYahoo;
-                $this->pendingNewCount = $newCount;
-                $this->pendingAlreadySentCount = $alreadySentCount;
-                $this->pendingSenderName = $senderName;
+                $this->pendingAudienceGroupId   = $audienceGroup->id;
+                $this->pendingSkipYahoo         = $skipYahoo;
+                $this->pendingNewCount          = $newCount;
+                $this->pendingAlreadySentCount  = $alreadySentCount;
+                $this->pendingSenderName        = $senderName;
 
                 $skipInfo = $alreadySentCount > 0
                     ? ' (' . number_format($alreadySentCount) . ' ' . __('already sent, skipped') . ')'
@@ -256,11 +320,11 @@ class EditEmailTemplate extends EditRecord
                     ->send();
 
                 // Clear pending data
-                $this->pendingAudienceGroupId = null;
-                $this->pendingSkipYahoo = null;
-                $this->pendingNewCount = null;
+                $this->pendingAudienceGroupId  = null;
+                $this->pendingSkipYahoo        = null;
+                $this->pendingNewCount         = null;
                 $this->pendingAlreadySentCount = null;
-                $this->pendingSenderName = null;
+                $this->pendingSenderName       = null;
             });
     }
 }

@@ -11,6 +11,9 @@ use Filament\Schemas\Schema;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Field;
+use Filament\Forms\Components\Repeater;
+use Filament\Schemas\Components\Section;
+use Filament\Forms\Components\Textarea;
 use Illuminate\Support\HtmlString;
 use Filament\Tables\Table;
 use Filament\Tables\Columns\TextColumn;
@@ -69,6 +72,37 @@ class EmailTemplateResource extends Resource
             $placeholderHint,
 
             $tiny('body', __('Email Body'), 700, 620),
+
+            Section::make(__('Variations'))
+                ->description(__('Add subject/body variations. The sender will randomly pick one per recipient.'))
+                ->collapsible()
+                ->collapsed()
+                ->schema([
+                    Repeater::make('variations')
+                        ->label(false)
+                        ->schema([
+                            TextInput::make('subject')
+                                ->label(__('Subject'))
+                                ->required()
+                                ->columnSpanFull(),
+
+                            Field::make('body')
+                                ->label(__('Body'))
+                                ->view('email-system::forms.tinymce')
+                                ->extraAttributes(['height' => 400])
+                                ->columnSpanFull()
+                                ->dehydrated(true)
+                                ->dehydrateStateUsing(fn ($state) => $state),
+                        ])
+                        ->columns(1)
+                        ->reorderable()
+                        ->reorderableWithDragAndDrop()
+                        ->collapsible()
+                        ->itemLabel(fn (array $state): ?string => ($state['subject'] ?? '') !== '' ? __('Variation') . ': ' . $state['subject'] : __('New Variation'))
+                        ->defaultItems(0)
+                        ->addActionLabel(__('Add Variation'))
+                        ->dehydrated(false),
+                ]),
         ]);
     }
 

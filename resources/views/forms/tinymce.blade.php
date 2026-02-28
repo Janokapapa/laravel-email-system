@@ -19,6 +19,7 @@
     })"
     x-init="init()"
     x-on:tinymce:reinit.window="reinit()"
+    x-on:tinymce:reinit="reinit()"
     class="fi-fo-field-wrp"
 >
     @if ($getLabel())

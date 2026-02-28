@@ -15,7 +15,7 @@ class CsvHelper
     {
         $definitions = AudienceUser::getCustomFieldDefinitions();
 
-        $header = ['name', 'email'];
+        $header = ['name', 'email', 'zerobounce_status'];
 
         foreach ($definitions as $field) {
             $slug = $field['slug'] ?? null;
@@ -36,7 +36,7 @@ class CsvHelper
     {
         $definitions = $definitions ?? AudienceUser::getCustomFieldDefinitions();
 
-        $row = [$user->name, $user->email];
+        $row = [$user->name, $user->email, $user->zerobounce_status ?? 'unverified'];
 
         foreach ($definitions as $field) {
             $slug = $field['slug'] ?? null;
@@ -73,8 +73,9 @@ class CsvHelper
     /**
      * Detect CSV headers and separator from a file path.
      * Handles UTF-8 BOM and auto-detects ; vs , separator.
+     * Smart detection: determines if the first row is a header or data.
      *
-     * @return array{headers: array<string>, separator: string}|null
+     * @return array{headers: array<string>, separator: string, has_header: bool}|null
      */
     public static function detectHeaders(string $filePath): ?array
     {
@@ -102,26 +103,245 @@ class CsvHelper
 
         $headers = array_map('trim', str_getcsv($firstLine, $separator));
 
-        return empty($headers) ? null : ['headers' => $headers, 'separator' => $separator];
+        if (empty($headers)) {
+            return null;
+        }
+
+        $hasHeader = self::looksLikeHeader($headers);
+
+        if (!$hasHeader) {
+            // Show "Column N (value)" so user can identify columns without opening the CSV
+            $rawValues = $headers;
+            $headers = array_map(
+                function (int $i) use ($rawValues) {
+                    $preview = mb_strimwidth($rawValues[$i] ?? '', 0, 40, '…');
+                    return 'Column ' . ($i + 1) . ' (' . $preview . ')';
+                },
+                array_keys($headers),
+            );
+        }
+
+        return ['headers' => $headers, 'separator' => $separator, 'has_header' => $hasHeader];
+    }
+
+    /**
+     * Determine if a row looks like a header (labels) or data.
+     * Returns false if any cell looks like an email address, a number,
+     * or a date — indicating the row contains actual data.
+     *
+     * @param  array<string> $cells
+     */
+    public static function looksLikeHeader(array $cells): bool
+    {
+        foreach ($cells as $cell) {
+            $cell = trim($cell);
+            if ($cell === '') {
+                continue;
+            }
+            // Contains @ → likely an email address → data row
+            if (filter_var($cell, FILTER_VALIDATE_EMAIL)) {
+                return false;
+            }
+            // Pure numeric value → data row
+            if (is_numeric($cell) && strlen($cell) > 0) {
+                return false;
+            }
+            // Date pattern (YYYY-MM-DD or DD/MM/YYYY or MM/DD/YYYY) → data row
+            if (preg_match('/^\d{4}[-\/]\d{2}[-\/]\d{2}$/', $cell) || preg_match('/^\d{2}[-\/]\d{2}[-\/]\d{4}$/', $cell)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Normalize a header string: lowercase, strip accents, replace separators with underscore.
+     */
+    public static function normalizeHeader(string $header): string
+    {
+        $header = strtolower(trim($header));
+        // Strip common accents
+        $header = strtr($header, [
+            'á' => 'a', 'é' => 'e', 'í' => 'i', 'ó' => 'o', 'ö' => 'o', 'ő' => 'o',
+            'ú' => 'u', 'ü' => 'u', 'ű' => 'u', 'ä' => 'a', 'ë' => 'e', 'ï' => 'i',
+            'ô' => 'o', 'û' => 'u', 'ñ' => 'n', 'ç' => 'c',
+        ]);
+        // Replace spaces, hyphens, dots with underscore
+        $header = preg_replace('/[\s\-\.]+/', '_', $header);
+        // Remove non-alphanumeric except underscore
+        $header = preg_replace('/[^a-z0-9_]/', '', $header);
+        // Collapse multiple underscores
+        return preg_replace('/_+/', '_', trim($header, '_'));
     }
 
     /**
      * Auto-detect a column index from headers by matching aliases (case-insensitive).
+     * Uses normalized matching: strips accents, replaces separators, then tries
+     * exact match first, then contains match as fallback.
      *
      * @param  array<string> $headers
      * @param  array<string> $aliases
      */
     public static function autoDetectColumn(array $headers, array $aliases): ?string
     {
+        $normalizedHeaders = [];
         foreach ($headers as $i => $header) {
-            $normalized = strtolower(trim($header));
-            foreach ($aliases as $alias) {
-                if ($normalized === strtolower($alias)) {
+            $normalizedHeaders[$i] = self::normalizeHeader($header);
+        }
+
+        $normalizedAliases = array_map([self::class, 'normalizeHeader'], $aliases);
+
+        // Pass 1: exact match on normalized form
+        foreach ($normalizedHeaders as $i => $nh) {
+            foreach ($normalizedAliases as $alias) {
+                if ($nh === $alias) {
                     return (string) $i;
                 }
             }
         }
+
+        // Pass 2: contains match (header contains alias or alias contains header)
+        foreach ($normalizedHeaders as $i => $nh) {
+            if ($nh === '' || strlen($nh) < 3) {
+                continue;
+            }
+            foreach ($normalizedAliases as $alias) {
+                if (strlen($alias) < 3) {
+                    continue;
+                }
+                if (str_contains($nh, $alias) || str_contains($alias, $nh)) {
+                    return (string) $i;
+                }
+            }
+        }
+
         return null;
+    }
+
+    /**
+     * Get country options for default country select (ISO 3166-1 alpha-2).
+     *
+     * @return array<string, string>
+     */
+    public static function getCountryOptions(): array
+    {
+        return [
+            'GB' => 'United Kingdom',
+            'US' => 'United States',
+            'DE' => 'Germany',
+            'FR' => 'France',
+            'ES' => 'Spain',
+            'IT' => 'Italy',
+            'NL' => 'Netherlands',
+            'BE' => 'Belgium',
+            'AT' => 'Austria',
+            'CH' => 'Switzerland',
+            'IE' => 'Ireland',
+            'SE' => 'Sweden',
+            'NO' => 'Norway',
+            'DK' => 'Denmark',
+            'FI' => 'Finland',
+            'PT' => 'Portugal',
+            'GR' => 'Greece',
+            'PL' => 'Poland',
+            'CZ' => 'Czech Republic',
+            'SK' => 'Slovakia',
+            'HU' => 'Hungary',
+            'RO' => 'Romania',
+            'BG' => 'Bulgaria',
+            'HR' => 'Croatia',
+            'SI' => 'Slovenia',
+            'RS' => 'Serbia',
+            'LT' => 'Lithuania',
+            'LV' => 'Latvia',
+            'EE' => 'Estonia',
+            'CA' => 'Canada',
+            'AU' => 'Australia',
+            'NZ' => 'New Zealand',
+            'BR' => 'Brazil',
+            'MX' => 'Mexico',
+            'JP' => 'Japan',
+            'IN' => 'India',
+            'ZA' => 'South Africa',
+            'AE' => 'UAE',
+            'TR' => 'Turkey',
+            'UA' => 'Ukraine',
+        ];
+    }
+
+    /**
+     * Get currency options for default currency select.
+     *
+     * @return array<string, string>
+     */
+    public static function getCurrencyOptions(): array
+    {
+        return [
+            'GBP' => 'GBP — British Pound',
+            'EUR' => 'EUR — Euro',
+            'USD' => 'USD — US Dollar',
+            'CAD' => 'CAD — Canadian Dollar',
+            'AUD' => 'AUD — Australian Dollar',
+            'NZD' => 'NZD — New Zealand Dollar',
+            'SEK' => 'SEK — Swedish Krona',
+            'NOK' => 'NOK — Norwegian Krone',
+            'DKK' => 'DKK — Danish Krone',
+            'CHF' => 'CHF — Swiss Franc',
+            'PLN' => 'PLN — Polish Zloty',
+            'CZK' => 'CZK — Czech Koruna',
+            'HUF' => 'HUF — Hungarian Forint',
+            'RON' => 'RON — Romanian Leu',
+            'BGN' => 'BGN — Bulgarian Lev',
+            'HRK' => 'HRK — Croatian Kuna',
+            'TRY' => 'TRY — Turkish Lira',
+            'BRL' => 'BRL — Brazilian Real',
+            'MXN' => 'MXN — Mexican Peso',
+            'JPY' => 'JPY — Japanese Yen',
+            'INR' => 'INR — Indian Rupee',
+            'ZAR' => 'ZAR — South African Rand',
+            'AED' => 'AED — UAE Dirham',
+            'UAH' => 'UAH — Ukrainian Hryvnia',
+        ];
+    }
+
+    /**
+     * Get the default currency for a country code (ISO 3166-1 alpha-2).
+     */
+    public static function currencyForCountry(string $countryCode): ?string
+    {
+        $map = [
+            'GB' => 'GBP', 'IE' => 'GBP',
+            'US' => 'USD',
+            'CA' => 'CAD',
+            'AU' => 'AUD',
+            'NZ' => 'NZD',
+            'JP' => 'JPY',
+            'IN' => 'INR',
+            'BR' => 'BRL',
+            'MX' => 'MXN',
+            'ZA' => 'ZAR',
+            'AE' => 'AED',
+            'CH' => 'CHF',
+            'SE' => 'SEK',
+            'NO' => 'NOK',
+            'DK' => 'DKK',
+            'PL' => 'PLN',
+            'CZ' => 'CZK',
+            'HU' => 'HUF',
+            'RO' => 'RON',
+            'BG' => 'BGN',
+            'HR' => 'HRK',
+            'TR' => 'TRY',
+            'UA' => 'UAH',
+            // Eurozone
+            'DE' => 'EUR', 'FR' => 'EUR', 'ES' => 'EUR', 'IT' => 'EUR',
+            'NL' => 'EUR', 'BE' => 'EUR', 'AT' => 'EUR', 'PT' => 'EUR',
+            'GR' => 'EUR', 'FI' => 'EUR', 'SK' => 'EUR', 'SI' => 'EUR',
+            'EE' => 'EUR', 'LV' => 'EUR', 'LT' => 'EUR',
+        ];
+
+        return $map[strtoupper($countryCode)] ?? null;
     }
 
     /**
