@@ -13,18 +13,31 @@
 {{-- wire:key forces Livewire to destroy and recreate when contentType changes --}}
 <div wire:key="body-{{ $getId() }}-{{ $contentType }}">
 @if ($contentType === 'text')
-{{-- Plain text mode: simple textarea --}}
-<div class="fi-fo-field-wrp">
+{{-- Plain text mode: Alpine-managed textarea with commit hook --}}
+<div class="fi-fo-field-wrp"
+    x-data="{
+        state: @entangle($getStatePath()).live,
+        _cleanup: null,
+        init() {
+            this._cleanup = Livewire.hook('commit', () => {
+                const val = this.$refs.ta.value;
+                if (this.state !== val) this.state = val;
+            });
+        },
+        destroy() { if (this._cleanup) this._cleanup(); }
+    }"
+>
     @if ($getLabel())
         <label class="fi-fo-field-wrp-label">{{ $getLabel() }}</label>
     @endif
 
     <textarea
-        wire:model.live.debounce.500ms="{{ $getStatePath() }}"
+        x-ref="ta"
+        x-model.debounce.500ms="state"
         class="fi-input w-full font-mono text-sm"
         style="min-height: {{ (int) $height }}px; min-width: 100%; resize: vertical; white-space: pre-wrap;"
         rows="20"
-    >{{ $getState() }}</textarea>
+    ></textarea>
 </div>
 @else
 {{-- HTML mode: TinyMCE rich editor --}}
@@ -85,10 +98,19 @@
 
         Alpine.data('tinymceField', ({ state, id, initial, height, maxWidth }) => ({
             state, id, initialDecoded: '', height: Number(height) || 300, maxWidth: maxWidth || null,
-            editor: null, _typingTimer: null, _saveGuardsBound: false,
+            editor: null, _typingTimer: null, _saveGuardsBound: false, _commitCleanup: null,
 
             async init() {
                 this.initialDecoded = b64ToUtf8(initial);
+
+                // Sync TinyMCE content before ANY Livewire request (wizard steps, etc.)
+                this._commitCleanup = Livewire.hook('commit', () => {
+                    if (this.editor) {
+                        const html = this.editor.getContent();
+                        if (this.state !== html) this.state = html;
+                        try { this.editor.save(); } catch(_) {}
+                    }
+                });
 
                 // Re-init on Livewire SPA navigations
                 document.addEventListener('livewire:navigated', () => {
@@ -99,6 +121,15 @@
                 await window.__tinyLoader;
                 await this.waitUntilVisible(this.$refs.ta);
                 this.mount();
+            },
+
+            destroy() {
+                if (this._commitCleanup) this._commitCleanup();
+                if (this.editor) {
+                    this.syncNow();
+                    try { this.editor.remove(); } catch(_) {}
+                    this.editor = null;
+                }
             },
 
             getThemeOptions() {
