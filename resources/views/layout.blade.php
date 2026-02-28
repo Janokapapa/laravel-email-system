@@ -79,8 +79,7 @@
     </tr>
 </table>
 </body>
-@if (isset($emailLog) && $emailLog->id)
-<!-- Tracking Pixel for Email Opens -->
+@if (!empty($trackOpens) && isset($emailLog) && $emailLog->id)
 <img src="{{ URL::signedRoute('email-system.track.open', ['log_id' => $emailLog->id]) }}" alt="" width="1" height="1" style="display:none;" />
 @endif
 </html>

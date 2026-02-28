@@ -43,6 +43,7 @@ class NewsletterMail extends Mailable
                 'subject' => $this->emailLog->subject,
                 'messageContent' => $this->emailLog->message,
                 'unsubscribeUrl' => $this->unsubscribeUrl,
+                'trackOpens' => $this->senderConfig['track_opens'] ?? false,
             ],
         );
     }

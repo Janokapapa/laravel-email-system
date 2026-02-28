@@ -164,10 +164,9 @@ class EmailTemplateResource extends Resource
                         'detailedStats' => EmailLog::where('email_template_id', $record->id)
                             ->selectRaw("
                                 COUNT(*) as total,
-                                SUM(CASE WHEN status = 'sent' THEN 1 ELSE 0 END) as sent,
+                                SUM(CASE WHEN status IN ('sent','spooled') THEN 1 ELSE 0 END) as sent,
                                 SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed,
                                 SUM(CASE WHEN status = 'queued' THEN 1 ELSE 0 END) as queued,
-                                SUM(opened) as opened_count,
                                 SUM(clicked) as clicked_count,
                                 SUM(complained) as complained_count,
                                 SUM(CASE WHEN bounce_type = 'hard' THEN 1 ELSE 0 END) as hard_bounce,

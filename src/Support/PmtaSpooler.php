@@ -4,6 +4,7 @@ namespace JanDev\EmailSystem\Support;
 
 use JanDev\EmailSystem\Models\EmailLog;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\URL;
 
 class PmtaSpooler
 {
@@ -89,6 +90,11 @@ class PmtaSpooler
             $rawHtml = $this->replaceUnsubscribeLinks($rawHtml, $unsubscribeUrl);
         }
 
+        // Rewrite links for click tracking (if enabled for this sender)
+        if ($this->senderConfig['track_clicks'] ?? true) {
+            $rawHtml = self::rewriteLinksForTracking($rawHtml, $emailLog->id, $unsubscribeUrl);
+        }
+
         // Append unsubscribe footer if URL is available and no unsubscribe link exists in the HTML
         if ($unsubscribeUrl && stripos($rawHtml, 'unsubscribe') === false) {
             $escapedUrl = htmlspecialchars($unsubscribeUrl);
@@ -110,6 +116,13 @@ class PmtaSpooler
 
             $rawHtml = '<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>'
                 . '<body style="margin:0;padding:0;' . $bodyBg . '">' . $rawHtml . '</body></html>';
+        }
+
+        // Inject open tracking pixel before </body> if enabled for this sender
+        if ($this->senderConfig['track_opens'] ?? false) {
+            $pixelUrl = URL::signedRoute('email-system.track.open', ['log_id' => $emailLog->id]);
+            $pixel = '<img src="' . htmlspecialchars($pixelUrl) . '" alt="" width="1" height="1" style="display:none;" />';
+            $rawHtml = str_ireplace('</body>', $pixel . '</body>', $rawHtml);
         }
 
         $htmlBody = quoted_printable_encode($rawHtml);
@@ -178,6 +191,43 @@ EOT;
         Log::channel('queue')->info("PmtaSpooler: spooled {$final}");
 
         return $final;
+    }
+
+    /**
+     * Rewrite all trackable links in the HTML to go through the click tracking endpoint.
+     * Skips: mailto:, #anchors, unsubscribe URLs, empty hrefs, and the tracking domain itself.
+     */
+    public static function rewriteLinksForTracking(string $html, int $logId, ?string $unsubscribeUrl): string
+    {
+        $trackingDomain = parse_url(config('app.url'), PHP_URL_HOST);
+
+        return preg_replace_callback(
+            '/<a\b([^>]*?)href\s*=\s*"([^"]*)"([^>]*?)>/is',
+            function ($match) use ($logId, $unsubscribeUrl, $trackingDomain) {
+                $href = $match[2];
+
+                // Skip non-trackable links
+                if (
+                    $href === '' ||
+                    $href === '#' ||
+                    str_starts_with($href, 'mailto:') ||
+                    str_starts_with($href, 'tel:') ||
+                    ($unsubscribeUrl && $href === $unsubscribeUrl) ||
+                    (stripos($href, 'unsubscribe') !== false) ||
+                    ($trackingDomain && str_contains($href, $trackingDomain))
+                ) {
+                    return $match[0];
+                }
+
+                $trackingUrl = URL::signedRoute('email-system.track.click', [
+                    'log_id' => $logId,
+                    'url' => $href,
+                ]);
+
+                return '<a' . $match[1] . 'href="' . htmlspecialchars($trackingUrl) . '"' . $match[3] . '>';
+            },
+            $html
+        );
     }
 
     /**

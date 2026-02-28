@@ -108,6 +108,16 @@ class SendQueuedEmail implements ShouldQueue
         DB::transaction(function () use ($senderConfig) {
             $unsubscribeUrl = $this->generateUnsubscribeUrl();
 
+            // Rewrite links for click tracking (in-memory only, not persisted)
+            $originalMessage = $this->emailLog->message;
+            if ($senderConfig['track_clicks'] ?? true) {
+                $this->emailLog->message = PmtaSpooler::rewriteLinksForTracking(
+                    (string) $originalMessage,
+                    $this->emailLog->id,
+                    $unsubscribeUrl
+                );
+            }
+
             $mailer = $senderConfig['smtp_mailer'] ?? config('email-system.smtp.mailer', 'smtp');
 
             Mail::mailer($mailer)->send(new NewsletterMail(
@@ -115,6 +125,9 @@ class SendQueuedEmail implements ShouldQueue
                 $unsubscribeUrl,
                 $senderConfig
             ));
+
+            // Restore original message so it's not persisted with tracking URLs
+            $this->emailLog->message = $originalMessage;
 
             $this->emailLog->update([
                 'status' => 'sent',
@@ -141,11 +154,22 @@ class SendQueuedEmail implements ShouldQueue
 
             $domain = $senderConfig['mailgun_domain'] ?? config('email-system.mailgun.domain');
 
+            // Rewrite links for click tracking before rendering (if enabled)
+            $messageContent = (string) $this->emailLog->message;
+            if ($senderConfig['track_clicks'] ?? true) {
+                $messageContent = PmtaSpooler::rewriteLinksForTracking(
+                    $messageContent,
+                    $this->emailLog->id,
+                    $unsubscribeUrl
+                );
+            }
+
             $htmlContent = view('email-system::newsletter', [
                 'emailLog' => $this->emailLog,
                 'subject' => $this->emailLog->subject,
-                'messageContent' => $this->emailLog->message,
+                'messageContent' => $messageContent,
                 'unsubscribeUrl' => $unsubscribeUrl,
+                'trackOpens' => $senderConfig['track_opens'] ?? false,
             ])->render();
 
             $fromAddress = $senderConfig['from_address'] ?? config('email-system.from.address');

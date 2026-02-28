@@ -28,4 +28,23 @@ class TrackingController extends Controller
             'Cache-Control' => 'no-store, no-cache, must-revalidate',
         ]);
     }
+
+    public function trackClick(Request $request, int $logId)
+    {
+        if (!$request->hasValidSignature()) {
+            abort(403);
+        }
+
+        $url = $request->query('url');
+        if (!$url) {
+            abort(400);
+        }
+
+        $emailLog = EmailLog::find($logId);
+        if ($emailLog && !$emailLog->clicked) {
+            $emailLog->markAsClicked();
+        }
+
+        return redirect($url);
+    }
 }

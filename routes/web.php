@@ -10,3 +10,7 @@ Route::get('/unsubscribe', [UnsubscribeController::class, 'unsubscribe'])
 Route::get('/track/open/{log_id}', [TrackingController::class, 'trackOpen'])
     ->name('email-system.track.open')
     ->middleware('signed');
+
+Route::get('/track/click/{log_id}', [TrackingController::class, 'trackClick'])
+    ->name('email-system.track.click')
+    ->middleware('signed');
