@@ -4,12 +4,12 @@ namespace JanDev\EmailSystem\Filament\Resources;
 
 use JanDev\EmailSystem\Filament\Resources\CampaignResource\Pages;
 use JanDev\EmailSystem\Models\Campaign;
+use Filament\Actions\Action;
 use Filament\Resources\Resource;
 use Filament\Tables\Table;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\DeleteBulkAction;
-use Filament\Actions\EditAction;
 use Filament\Actions\ViewAction;
 
 class CampaignResource extends Resource
@@ -104,8 +104,26 @@ class CampaignResource extends Resource
             ->recordActions([
                 ViewAction::make()
                     ->visible(fn (Campaign $record): bool => $record->status !== 'new'),
-                EditAction::make()
-                    ->visible(fn (Campaign $record): bool => $record->status === 'new'),
+                Action::make('duplicate')
+                    ->label(__('Duplicate'))
+                    ->icon('heroicon-o-document-duplicate')
+                    ->color('gray')
+                    ->requiresConfirmation()
+                    ->modalHeading(__('Duplicate Campaign'))
+                    ->modalDescription(__('A copy of this campaign will be created as a new unsent campaign.'))
+                    ->action(function (Campaign $record) {
+                        $clone = $record->replicate();
+                        $clone->name = $record->name . ' (' . __('copy') . ')';
+                        $clone->status = 'new';
+                        $clone->current_step = 5;
+                        $clone->total_recipients = 0;
+                        $clone->sent_count = 0;
+                        $clone->failed_count = 0;
+                        $clone->sent_at = null;
+                        $clone->save();
+
+                        return redirect(static::getUrl('edit', ['record' => $clone]));
+                    }),
                 DeleteAction::make(),
             ])
             ->toolbarActions([
