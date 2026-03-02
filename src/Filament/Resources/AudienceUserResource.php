@@ -81,6 +81,7 @@ class AudienceUserResource extends Resource
     public static function table(Table $table): Table
     {
         return $table
+            ->defaultPaginationPageOption(50)
             ->columns([
                 TextColumn::make('name')->label(__('User Name')),
                 TextColumn::make('email')->label(__('Email')),

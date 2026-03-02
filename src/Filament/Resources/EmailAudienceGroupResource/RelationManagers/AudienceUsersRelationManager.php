@@ -72,6 +72,7 @@ class AudienceUsersRelationManager extends RelationManager
     public function table(Table $table): Table
     {
         return $table
+            ->defaultPaginationPageOption(50)
             ->columns([
                 TextColumn::make('name')->label(__('User Name')),
                 TextColumn::make('email')->label(__('Email')),

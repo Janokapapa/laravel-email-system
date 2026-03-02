@@ -41,6 +41,7 @@ class CampaignResource extends Resource
     public static function table(Table $table): Table
     {
         $tableBuilder = $table
+            ->defaultPaginationPageOption(50)
             ->defaultSort('created_at', 'desc')
             ->poll(fn () => Campaign::where('status', 'sending')
                 ->where('created_at', '>=', now()->subDay())

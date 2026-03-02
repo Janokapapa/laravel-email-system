@@ -43,6 +43,7 @@ class EmailLogResource extends Resource
     public static function table(Table $table): Table
     {
         return $table
+            ->defaultPaginationPageOption(50)
             ->defaultSort('created_at', 'desc')
             ->columns([
                 TextColumn::make('recipient')
