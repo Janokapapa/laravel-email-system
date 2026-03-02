@@ -50,6 +50,16 @@ class EmailAudienceGroupResource extends Resource
     {
         return $table
             ->defaultPaginationPageOption(50)
+            ->modifyQueryUsing(fn ($query) => $query->withCount([
+                'audienceUsers as total_count',
+                'audienceUsers as active_count' => fn ($q) => $q->where('is_active', true),
+                'audienceUsers as bounced_count' => fn ($q) => $q->where('bounced', true),
+                'audienceUsers as zb_valid_count' => fn ($q) => $q->where('zerobounce_status', 'valid'),
+                'audienceUsers as zb_invalid_count' => fn ($q) => $q->where('zerobounce_status', 'invalid'),
+                'audienceUsers as zb_unverified_count' => fn ($q) => $q->where(function ($q2) {
+                    $q2->whereNull('zerobounce_status')->orWhere('zerobounce_status', 'unverified');
+                }),
+            ]))
             ->columns([
                 TextColumn::make('name')
                     ->label(__('Group Name'))
@@ -59,20 +69,29 @@ class EmailAudienceGroupResource extends Resource
                     ->label(__('Created At'))
                     ->dateTime('Y-m-d H:i:s')
                     ->sortable(),
-                TextColumn::make('active_users_count')
+                TextColumn::make('total_count')
+                    ->label(__('Total'))
+                    ->getStateUsing(fn ($record) => $record->total_count),
+                TextColumn::make('active_count')
                     ->label(__('Active'))
-                    ->getStateUsing(fn ($record) => $record->active_users_count),
-                TextColumn::make('inactive_users_count')
-                    ->label(__('Inactive'))
-                    ->getStateUsing(fn ($record) => $record->inactive_users_count),
-                TextColumn::make('sent_count')
-                    ->label(__('Sent'))
-                    ->getStateUsing(fn ($record) => $record->sent_users_count)
-                    ->color('success'),
+                    ->getStateUsing(fn ($record) => $record->active_count)
+                    ->color(fn ($state) => $state > 0 ? 'success' : null),
                 TextColumn::make('bounced_count')
                     ->label(__('Bounced'))
-                    ->getStateUsing(fn ($record) => $record->bounced_users_count)
-                    ->color('danger'),
+                    ->getStateUsing(fn ($record) => $record->bounced_count)
+                    ->color(fn ($state) => $state > 0 ? 'danger' : null),
+                TextColumn::make('zb_valid_count')
+                    ->label(__('ZB Valid'))
+                    ->getStateUsing(fn ($record) => $record->zb_valid_count)
+                    ->color(fn ($state) => $state > 0 ? 'success' : null),
+                TextColumn::make('zb_invalid_count')
+                    ->label(__('ZB Invalid'))
+                    ->getStateUsing(fn ($record) => $record->zb_invalid_count)
+                    ->color(fn ($state) => $state > 0 ? 'danger' : null),
+                TextColumn::make('zb_unverified_count')
+                    ->label(__('Unverified'))
+                    ->getStateUsing(fn ($record) => $record->zb_unverified_count)
+                    ->color(fn ($state) => $state > 0 ? 'warning' : null),
             ])
             ->filters([]);
     }
