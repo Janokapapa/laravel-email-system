@@ -10,6 +10,8 @@ use JanDev\EmailSystem\Filament\Resources\EmailAudienceGroupResource;
 use JanDev\EmailSystem\Filament\Resources\EmailLogResource;
 use JanDev\EmailSystem\Filament\Resources\AudienceUserResource;
 use JanDev\EmailSystem\Filament\Widgets\JobProgressWidget;
+use JanDev\EmailSystem\Filament\Widgets\PmtaStatsWidget;
+use JanDev\EmailSystem\Filament\Widgets\PmtaDomainChartWidget;
 
 class EmailSystemPlugin implements Plugin
 {
@@ -29,6 +31,8 @@ class EmailSystemPlugin implements Plugin
         ]);
 
         $panel->widgets([
+            PmtaStatsWidget::class,
+            PmtaDomainChartWidget::class,
             JobProgressWidget::class,
         ]);
     }
