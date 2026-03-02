@@ -37,6 +37,19 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | PMTA Configuration
+    |--------------------------------------------------------------------------
+    |
+    | bounce_api_key: Must match the API_KEY constant in process-bounces.py.
+    | Set PMTA_BOUNCE_API_KEY in .env.
+    |
+    */
+    'pmta' => [
+        'bounce_api_key' => env('PMTA_BOUNCE_API_KEY'),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | From Address Configuration
     |--------------------------------------------------------------------------
     */
