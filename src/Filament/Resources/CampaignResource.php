@@ -90,17 +90,22 @@ class CampaignResource extends Resource
                 TextColumn::make('progress')
                     ->label(__('Progress'))
                     ->getStateUsing(function (Campaign $record): string {
-                        if ($record->status === 'new') {
+                        if ($record->status === 'new' || $record->total_recipients === 0) {
                             return '—';
                         }
+                        $sent = $record->sent_count;
                         $total = $record->total_recipients;
-                        $sent  = $record->sent_count;
-                        if ($total === 0) {
-                            return '—';
-                        }
                         $pct = $record->getProgressPercent();
-                        return "{$sent} / {$total} ({$pct}%)";
-                    }),
+                        return <<<HTML
+                        <div class="flex flex-col gap-1">
+                            <div class="text-xs">{$sent} / {$total}</div>
+                            <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                                <div class="bg-primary-500 h-2 rounded-full" style="width: {$pct}%"></div>
+                            </div>
+                        </div>
+                        HTML;
+                    })
+                    ->html(),
 
                 TextColumn::make('created_at')
                     ->label(__('Created'))
