@@ -26,7 +26,7 @@ class PmtaStatsWidget extends StatsOverviewWidget
         $totalBounced = 0;
 
         foreach ($servers as $server) {
-            $data = Cache::get("pmta_stats:{$server}");
+            $data = Cache::get("pmta_stats:{$server}:7");
 
             if ($data === null) {
                 continue;

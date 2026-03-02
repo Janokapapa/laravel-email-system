@@ -46,7 +46,7 @@ class PmtaDomainChartWidget extends ChartWidget
         $bounced = array_fill_keys($domainGroups, 0);
 
         foreach ($servers as $server) {
-            $data = Cache::get("pmta_stats:{$server}");
+            $data = Cache::get("pmta_stats:{$server}:7");
 
             if ($data === null || empty($data['domains'])) {
                 continue;

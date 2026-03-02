@@ -9,6 +9,8 @@ use JanDev\EmailSystem\Filament\Resources\EmailTemplateResource;
 use JanDev\EmailSystem\Filament\Resources\EmailAudienceGroupResource;
 use JanDev\EmailSystem\Filament\Resources\EmailLogResource;
 use JanDev\EmailSystem\Filament\Resources\AudienceUserResource;
+use JanDev\EmailSystem\Filament\Pages\PmtaStatisticsPage;
+use JanDev\EmailSystem\Filament\Pages\PmtaServerDetailPage;
 use JanDev\EmailSystem\Filament\Widgets\JobProgressWidget;
 use JanDev\EmailSystem\Filament\Widgets\PmtaStatsWidget;
 use JanDev\EmailSystem\Filament\Widgets\PmtaDomainChartWidget;
@@ -28,6 +30,11 @@ class EmailSystemPlugin implements Plugin
             EmailAudienceGroupResource::class,
             EmailLogResource::class,
             AudienceUserResource::class,
+        ]);
+
+        $panel->pages([
+            PmtaStatisticsPage::class,
+            PmtaServerDetailPage::class,
         ]);
 
         $panel->widgets([
