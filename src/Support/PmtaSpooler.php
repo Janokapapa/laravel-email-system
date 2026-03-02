@@ -77,6 +77,11 @@ class PmtaSpooler
 
         $fromDomain = substr(strrchr($fromAddress, '@'), 1) ?: 'localhost';
         $messageId = '<' . md5(uniqid()) . '@' . $fromDomain . '>';
+
+        $bounceDomain = $this->serverConfig['bounce_domain'] ?? '';
+        $envelopeSender = $bounceDomain !== ''
+            ? self::buildVerpSender($emailLog->id, $fromDomain, $bounceDomain)
+            : $fromAddress;
         $date = date('r');
 
         $subject = '=?UTF-8?B?' . base64_encode($emailLog->subject) . '?=';
@@ -105,7 +110,7 @@ class PmtaSpooler
             $textBody = quoted_printable_encode($rawText);
 
             $eml = <<<EOT
-x-sender: {$fromAddress}
+x-sender: {$envelopeSender}
 x-receiver: {$emailLog->recipient}
 x-virtual-mta: {$virtualMta}
 Date: {$date}
@@ -160,7 +165,7 @@ EOT;
             $textBody = quoted_printable_encode(trim(strip_tags((string) $emailLog->message)));
 
             $eml = <<<EOT
-x-sender: {$fromAddress}
+x-sender: {$envelopeSender}
 x-receiver: {$emailLog->recipient}
 x-virtual-mta: {$virtualMta}
 Date: {$date}
@@ -254,6 +259,23 @@ EOT;
             },
             $html
         );
+    }
+
+    /**
+     * Build a VERP envelope sender address.
+     *
+     * Format: bounce-{emailLogId}-{fromDomain_dots_to_hyphens}@{bounceDomain}
+     * Example: bounce-68283-casino007-co@bounce.wavebrix.com
+     *
+     * Note: process-bounces.py uses rfind('-') to recover the domain, so only
+     * the last hyphen is converted back to a dot — this works correctly for
+     * single-TLD from_domains (e.g. casino007.co).
+     */
+    public static function buildVerpSender(int $emailLogId, string $fromDomain, string $bounceDomain): string
+    {
+        $domainHyphened = str_replace('.', '-', $fromDomain);
+        $result = "bounce-{$emailLogId}-{$domainHyphened}@{$bounceDomain}";
+        return str_replace(["\r", "\n"], '', $result);
     }
 
     /**
