@@ -150,19 +150,17 @@
             </div>
 
             {{-- Domain chart --}}
-            <div class="cv-card cv-pad">
+            <div class="cv-card cv-pad" wire:ignore>
                 <h3 class="cv-section-title" style="margin-bottom:16px">Domain Volume</h3>
                 @if(count($chart['labels']) > 0)
-                    <div
-                        x-data="{
-                            chart: null,
-                            init() {
-                                this.$nextTick(() => this.renderChart())
-                            },
-                            renderChart() {
-                                if (this.chart) this.chart.destroy()
-                                if (!this.$refs.canvas) return
-                                this.chart = new Chart(this.$refs.canvas, {
+                    <div style="position:relative;height:220px">
+                        <canvas id="pmta-server-domain-chart"></canvas>
+                    </div>
+                    <script>
+                        document.addEventListener('DOMContentLoaded', function() {
+                            var canvas = document.getElementById('pmta-server-domain-chart');
+                            if (canvas && typeof Chart !== 'undefined') {
+                                new Chart(canvas, {
                                     type: 'bar',
                                     data: {
                                         labels: @js($chart['labels']),
@@ -178,14 +176,10 @@
                                         scales: { x: { stacked: true }, y: { stacked: true } },
                                         plugins: { legend: { position: 'bottom' } }
                                     }
-                                })
+                                });
                             }
-                        }"
-                        x-init="init()"
-                        wire:key="server-chart-{{ $this->selectedPeriod }}"
-                    >
-                        <canvas x-ref="canvas" style="height:220px"></canvas>
-                    </div>
+                        });
+                    </script>
                 @else
                     <div class="cv-sub">No chart data available.</div>
                 @endif
