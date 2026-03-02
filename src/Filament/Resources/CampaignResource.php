@@ -89,9 +89,9 @@ class CampaignResource extends Resource
 
                 TextColumn::make('progress')
                     ->label(__('Progress'))
-                    ->getStateUsing(fn (Campaign $record): string => $record->status === 'new' || $record->total_recipients === 0
-                        ? '—'
-                        : $record->sent_count . '/' . $record->total_recipients
+                    ->getStateUsing(fn (Campaign $record): string => $record->total_recipients > 0
+                        ? $record->sent_count . '/' . $record->total_recipients
+                        : '—'
                     )
                     ->formatStateUsing(function (string $state, Campaign $record): string {
                         if ($state === '—') {
@@ -100,10 +100,10 @@ class CampaignResource extends Resource
                         $sent = $record->sent_count;
                         $total = $record->total_recipients;
                         $pct = $record->getProgressPercent();
-                        return '<div class="flex flex-col gap-1">'
-                            . '<div class="text-xs">' . $sent . ' / ' . $total . '</div>'
-                            . '<div class="w-full bg-gray-200 dark:bg-white/10 rounded-full h-2">'
-                            . '<div class="bg-primary-500 h-2 rounded-full" style="width: ' . $pct . '%"></div>'
+                        return '<div style="display:flex;flex-direction:column;gap:4px;min-width:80px">'
+                            . '<span style="font-size:12px">' . $sent . ' / ' . $total . '</span>'
+                            . '<div style="width:100%;background:rgba(128,128,128,0.2);border-radius:9999px;height:8px">'
+                            . '<div style="width:' . $pct . '%;background:#f59e0b;border-radius:9999px;height:8px"></div>'
                             . '</div></div>';
                     })
                     ->html(),
