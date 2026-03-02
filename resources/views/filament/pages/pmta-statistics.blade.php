@@ -154,9 +154,7 @@
                     renderChart() {
                         if (this.chart) this.chart.destroy()
                         if (!this.$refs.canvas) return
-                        const ctx = this.$refs.canvas.getContext('2d')
-                        if (!ctx) return
-                        this.chart = new Chart(ctx, {
+                        this.chart = new Chart(this.$refs.canvas, {
                             type: 'bar',
                             data: {
                                 labels: @js($chart['labels']),
