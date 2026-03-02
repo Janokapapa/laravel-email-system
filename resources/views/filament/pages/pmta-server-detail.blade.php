@@ -1,7 +1,7 @@
 <x-filament-panels::page>
-@push('scripts')
+@assets
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
-@endpush
+@endassets
 @php
     $serverData = $this->getServerData();
     $domainTable = $this->getDomainTableData();
@@ -157,11 +157,13 @@
                         x-data="{
                             chart: null,
                             init() {
-                                this.renderChart()
+                                this.$nextTick(() => this.renderChart())
                             },
                             renderChart() {
                                 if (this.chart) this.chart.destroy()
+                                if (!this.$refs.canvas) return
                                 const ctx = this.$refs.canvas.getContext('2d')
+                                if (!ctx) return
                                 this.chart = new Chart(ctx, {
                                     type: 'bar',
                                     data: {
