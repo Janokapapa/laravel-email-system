@@ -150,7 +150,17 @@ class EmailTemplateResource extends Resource
                     ->modalDescription(__('A copy of this template will be created.'))
                     ->action(function (EmailTemplate $record) {
                         $clone = $record->replicate();
-                        $clone->name = $record->name . ' (' . __('copy') . ')';
+                        $baseName = preg_replace('/\s*\(\d+\)$/', '', $record->name);
+                        $existing = EmailTemplate::where('name', 'LIKE', $baseName . ' (%)')
+                            ->where('name', 'REGEXP', '^' . preg_quote($baseName, '/') . ' \\([0-9]+\\)$')
+                            ->pluck('name');
+                        $maxNum = 0;
+                        foreach ($existing as $name) {
+                            if (preg_match('/\((\d+)\)$/', $name, $m)) {
+                                $maxNum = max($maxNum, (int) $m[1]);
+                            }
+                        }
+                        $clone->name = $baseName . ' (' . ($maxNum + 1) . ')';
                         $clone->save();
 
                         // Duplicate variations
