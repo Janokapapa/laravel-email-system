@@ -193,7 +193,10 @@ class EditCampaign extends EditRecord
                         ->email()
                         ->helperText(__('Leave empty to use From Address'))
                         ->nullable(),
-                ]),
+                ])
+                ->afterValidation(function () {
+                    $this->saveStepData();
+                }),
 
             // ─── Step 2: Lists ───────────────────────────────────────────────
             Step::make(__('Lists'))
@@ -227,7 +230,10 @@ class EditCampaign extends EditRecord
                         ])
                         ->default([])
                         ->columns(2),
-                ]),
+                ])
+                ->afterValidation(function () {
+                    $this->saveStepData();
+                }),
 
             // ─── Step 3: Template ─────────────────────────────────────────────
             Step::make(__('Template'))
@@ -314,7 +320,10 @@ class EditCampaign extends EditRecord
                                 ->defaultItems(0)
                                 ->addActionLabel(__('Add Variation')),
                         ]),
-                ]),
+                ])
+                ->afterValidation(function () {
+                    $this->saveStepData();
+                }),
 
             // ─── Step 4: Test & Preview ───────────────────────────────────────
             Step::make(__('Test & Preview'))
@@ -339,7 +348,10 @@ class EditCampaign extends EditRecord
                                 ->icon('heroicon-o-paper-airplane')
                                 ->action(fn () => $this->sendTestEmail())
                         ),
-                ]),
+                ])
+                ->afterValidation(function () {
+                    $this->saveStepData();
+                }),
 
             // ─── Step 5: Confirm & Send ──────────────────────────────────────
             Step::make(__('Send'))
@@ -356,6 +368,29 @@ class EditCampaign extends EditRecord
     protected function buildPlaceholderHint(): Placeholder
     {
         return \JanDev\EmailSystem\Support\PlaceholderHint::make();
+    }
+
+    protected function saveStepData(): void
+    {
+        try {
+            $state = $this->form->getState();
+            $this->record->update([
+                'name'                => $state['name'] ?? $this->record->name,
+                'sender_name'         => $state['sender_name'] ?? $this->record->sender_name,
+                'sender_address'      => $state['sender_address'] ?? $this->record->sender_address,
+                'sender_display_name' => $state['sender_display_name'] ?? $this->record->sender_display_name,
+                'reply_to'            => $state['reply_to'] ?? $this->record->reply_to,
+                'audience_group_ids'  => $state['audience_group_ids'] ?? $this->record->audience_group_ids,
+                'skip_providers'      => $state['skip_providers'] ?? $this->record->skip_providers,
+                'email_template_id'   => $state['email_template_id'] ?? $this->record->email_template_id,
+                'content_type'        => $state['content_type'] ?? $this->record->content_type,
+                'subject'             => $state['subject'] ?? $this->record->subject,
+                'body'                => $state['body'] ?? $this->record->body,
+                'variations'          => $state['variations'] ?? $this->record->variations,
+            ]);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Campaign step save failed: ' . $e->getMessage());
+        }
     }
 
     protected function mutateFormDataBeforeSave(array $data): array
@@ -377,7 +412,7 @@ class EditCampaign extends EditRecord
 
     protected function getRedirectUrl(): string
     {
-        return $this->getResource()::getUrl('index');
+        return $this->getResource()::getUrl('edit', ['record' => $this->record]);
     }
 
     public function sendTestEmail(): void
