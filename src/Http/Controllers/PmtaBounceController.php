@@ -3,6 +3,7 @@
 namespace JanDev\EmailSystem\Http\Controllers;
 
 use JanDev\EmailSystem\Models\AudienceUser;
+use JanDev\EmailSystem\Models\BouncedEmail;
 use JanDev\EmailSystem\Models\EmailLog;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
@@ -35,6 +36,17 @@ class PmtaBounceController extends Controller
         if (empty($email) || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
             return response()->json(['error' => 'Invalid or missing email'], 400);
         }
+
+        // Save to global bounce registry (regardless of whether email exists in audience lists)
+        BouncedEmail::updateOrCreate(
+            ['email' => $email],
+            [
+                'bounce_type' => 'hard',
+                'bounce_reason' => 'PMTA hard bounce',
+                'source' => 'pmta',
+                'bounced_at' => now(),
+            ]
+        );
 
         // Mark ALL AudienceUser records with this email as hard-bounced and inactive
         $affectedRows = AudienceUser::where('email', $email)->update([

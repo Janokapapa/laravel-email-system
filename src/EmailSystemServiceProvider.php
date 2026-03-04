@@ -4,6 +4,8 @@ namespace JanDev\EmailSystem;
 
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
+use JanDev\EmailSystem\Models\AudienceUser;
+use JanDev\EmailSystem\Observers\AudienceUserObserver;
 
 class EmailSystemServiceProvider extends ServiceProvider
 {
@@ -37,6 +39,9 @@ class EmailSystemServiceProvider extends ServiceProvider
 
         // Load views
         $this->loadViewsFrom(__DIR__ . '/../resources/views', 'email-system');
+
+        // Register observers
+        AudienceUser::observe(AudienceUserObserver::class);
 
         // Register routes with configured prefix and middleware
         $this->registerRoutes();

@@ -3,6 +3,7 @@
 namespace JanDev\EmailSystem\Jobs;
 
 use JanDev\EmailSystem\Models\AudienceUser;
+use JanDev\EmailSystem\Models\BouncedEmail;
 use JanDev\EmailSystem\Models\EmailLog;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -61,6 +62,7 @@ class ProcessMailgunWebhook implements ShouldQueue
     private function handleBounce(): void
     {
         $recipient = $this->data['recipient'] ?? null;
+        $recipient = $recipient ? strtolower(trim($recipient)) : null;
         $messageId = $this->data['message_id'] ?? null;
         $severity = $this->data['severity'] ?? null;
 
@@ -86,6 +88,17 @@ class ProcessMailgunWebhook implements ShouldQueue
         }
 
         if ($recipient) {
+            // Save to global bounce registry
+            BouncedEmail::updateOrCreate(
+                ['email' => $recipient],
+                [
+                    'bounce_type' => 'hard',
+                    'bounce_reason' => $bounceReason,
+                    'source' => 'mailgun',
+                    'bounced_at' => now(),
+                ]
+            );
+
             AudienceUser::where('email', $recipient)->update([
                 'bounced' => true,
                 'bounce_type' => 'hard',
@@ -95,9 +108,13 @@ class ProcessMailgunWebhook implements ShouldQueue
             ]);
 
             // Call custom bounce handler if configured
-            $bounceHandler = resolve_callback(config('email-system.bounce_handler'));
-            if ($bounceHandler) {
-                $bounceHandler($recipient, $bounceReason);
+            try {
+                $bounceHandler = resolve_callback(config('email-system.bounce_handler'));
+                if ($bounceHandler) {
+                    $bounceHandler($recipient, $bounceReason);
+                }
+            } catch (\Throwable $e) {
+                report($e);
             }
         }
     }
