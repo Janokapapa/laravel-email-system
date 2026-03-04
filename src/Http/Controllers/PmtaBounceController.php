@@ -16,7 +16,7 @@ class PmtaBounceController extends Controller
      * Handle PMTA hard bounce notification.
      *
      * Called by /var/www/pmta/scripts/process-bounces.py for every STOP (hard) bounce.
-     * Payload: {"email": "bounced@example.com"}
+     * Payload: {"email": "bounced@example.com", "reason": "5.1.1 user unknown"}
      * Auth: X-API-Key header must match config('email-system.pmta.bounce_api_key')
      * Response: {"result": "OK", "found": true|false}
      */
@@ -37,12 +37,15 @@ class PmtaBounceController extends Controller
             return response()->json(['error' => 'Invalid or missing email'], 400);
         }
 
+        // Use detailed reason from PMTA if provided, fallback to generic
+        $bounceReason = trim($request->input('reason', '')) ?: 'PMTA hard bounce';
+
         // Save to global bounce registry (regardless of whether email exists in audience lists)
         BouncedEmail::updateOrCreate(
             ['email' => $email],
             [
                 'bounce_type' => 'hard',
-                'bounce_reason' => 'PMTA hard bounce',
+                'bounce_reason' => $bounceReason,
                 'source' => 'pmta',
                 'bounced_at' => now(),
             ]
@@ -52,7 +55,7 @@ class PmtaBounceController extends Controller
         $affectedRows = AudienceUser::where('email', $email)->update([
             'bounced' => true,
             'bounce_type' => 'hard',
-            'bounce_reason' => 'PMTA hard bounce',
+            'bounce_reason' => $bounceReason,
             'bounced_at' => now(),
             'is_active' => false,
         ]);
@@ -69,7 +72,7 @@ class PmtaBounceController extends Controller
                 $log->update([
                     'status' => 'failed',
                     'bounce_type' => 'hard',
-                    'bounce_reason' => 'PMTA hard bounce',
+                    'bounce_reason' => $bounceReason,
                     'bounced_at' => now(),
                 ]);
             }
@@ -78,7 +81,7 @@ class PmtaBounceController extends Controller
             try {
                 $bounceHandler = resolve_callback(config('email-system.bounce_handler'));
                 if ($bounceHandler) {
-                    $bounceHandler($email, 'PMTA hard bounce');
+                    $bounceHandler($email, $bounceReason);
                 }
             } catch (\Throwable $e) {
                 report($e);
