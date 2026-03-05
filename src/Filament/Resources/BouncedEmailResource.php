@@ -68,8 +68,9 @@ class BouncedEmailResource extends Resource
                     ->sortable(),
                 TextColumn::make('bounce_reason')
                     ->label(__('Reason'))
-                    ->limit(50)
-                    ->toggleable(isToggledHiddenByDefault: true),
+                    ->limit(60)
+                    ->tooltip(fn (?string $state): ?string => $state)
+                    ->sortable(),
                 TextColumn::make('bounced_at')
                     ->label(__('Bounced At'))
                     ->dateTime('Y-m-d H:i:s')
