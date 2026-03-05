@@ -55,6 +55,8 @@ class EmailSystemServiceProvider extends ServiceProvider
                 Console\Commands\CleanupMailgunEvents::class,
                 Console\Commands\SyncCustomFieldIndexes::class,
                 Console\Commands\PmtaSync::class,
+                Console\Commands\MigrateOemproLists::class,
+                Console\Commands\ImportOemproSuppressions::class,
             ]);
         }
     }

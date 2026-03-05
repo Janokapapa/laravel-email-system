@@ -143,6 +143,36 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Audience REST API
+    |--------------------------------------------------------------------------
+    |
+    | api.key: API key for the audience groups/subscribers REST API.
+    | Set EMAIL_SYSTEM_API_KEY in .env.
+    |
+    */
+    'api' => [
+        'key' => env('EMAIL_SYSTEM_API_KEY'),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | OemPro Migration Database Connection
+    |--------------------------------------------------------------------------
+    |
+    | Used by email:migrate-oempro and email:import-oempro-suppressions commands.
+    | The SSH tunnel must be established before running these commands.
+    | Tunnel: ssh -S /tmp/oempro-tunnel -M -fNL 33061:localhost:3306 caspmta5
+    |
+    */
+    'oempro_db' => [
+        'host'     => '127.0.0.1',
+        'port'     => 33061,
+        'username' => 'root',
+        'password' => env('OEMPRO_DB_PASSWORD', ''),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Admin Email (for watchdog alerts)
     |--------------------------------------------------------------------------
     */
