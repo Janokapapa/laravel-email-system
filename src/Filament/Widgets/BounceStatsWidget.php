@@ -47,16 +47,29 @@ class BounceStatsWidget extends StatsOverviewWidget
                 default => 'gray',
             };
 
-            $label = match ($row->bounce_code) {
-                '5.1.1' => '5.1.1 (User unknown)',
-                '5.1.2' => '5.1.2 (Bad host)',
-                '5.0.0' => '5.0.0 (Undefined)',
-                '5.7.1' => '5.7.1 (Rejected)',
-                '5.7.2' => '5.7.2 (Deferred)',
-                '5.4.4' => '5.4.4 (No route)',
-                '5.2.1' => '5.2.1 (Mailbox full)',
-                default => $row->bounce_code,
-            };
+            $descriptions = [
+                '5.0.0' => 'Undefined / Other',
+                '5.1.0' => 'Address rejected',
+                '5.1.1' => 'User unknown / mailbox not found',
+                '5.1.2' => 'Bad destination host / domain not found',
+                '5.1.3' => 'Bad destination mailbox syntax',
+                '5.1.10' => 'Recipient not found',
+                '5.2.0' => 'Mailbox issue',
+                '5.2.1' => 'Mailbox full / over quota',
+                '5.2.2' => 'Mailbox full / over quota',
+                '5.3.0' => 'Mail system full',
+                '5.4.1' => 'No answer from host',
+                '5.4.4' => 'Unable to route / no MX record',
+                '5.5.0' => 'Protocol error / command rejected',
+                '5.5.1' => 'Invalid command',
+                '5.7.0' => 'Security/policy rejection',
+                '5.7.1' => 'Delivery not authorized / rejected by policy',
+                '5.7.2' => 'Permanently deferred / blocked IP',
+                '5.7.26' => 'DMARC / authentication failure',
+            ];
+
+            $desc = $descriptions[$row->bounce_code] ?? null;
+            $label = $desc ? "{$row->bounce_code} — {$desc}" : $row->bounce_code;
 
             $pct = $total > 0 ? round(($row->cnt / $total) * 100, 1) : 0;
 
