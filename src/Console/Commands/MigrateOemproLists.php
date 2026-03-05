@@ -169,8 +169,8 @@ class MigrateOemproLists extends Command
             $this->line("Database charset: {$charset}");
 
             if (in_array(strtolower($charset), ['latin1', 'latin1_swedish_ci'])) {
-                $oemDb->statement("SET NAMES latin1");
-                $this->warn("latin1 charset detected — using latin1 connection to avoid mojibake");
+                // Keep connection at utf8mb4 so MySQL auto-converts latin1→UTF-8 on read
+                $this->warn("latin1 charset detected — MySQL will auto-convert to UTF-8");
             }
         } catch (\Throwable $e) {
             $this->warn("Could not detect charset: " . $e->getMessage());

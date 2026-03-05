@@ -40,10 +40,13 @@ class ImportOemproSuppressions extends Command
 
             $imported = 0;
             $skipped = 0;
+            $now = now()->toDateTimeString();
 
             $oemDb->table('oempro_suppression_list')
                 ->orderBy('EmailAddress')
-                ->chunk(1000, function ($suppressions) use ($dryRun, &$imported, &$skipped) {
+                ->chunk(1000, function ($suppressions) use ($dryRun, &$imported, &$skipped, $now) {
+                    $bouncedRows = [];
+
                     foreach ($suppressions as $row) {
                         $bounceType = self::SOURCE_MAP[$row->SuppressionSource] ?? null;
 
@@ -52,12 +55,42 @@ class ImportOemproSuppressions extends Command
                             continue;
                         }
 
-                        if (!$dryRun) {
-                            $this->importSuppression($row, $bounceType);
-                        }
+                        $email = strtolower(trim($row->EmailAddress));
+                        $bouncedRows[] = [
+                            'email'         => $email,
+                            'bounce_type'   => $bounceType,
+                            'bounce_reason' => 'OemPro suppression: ' . ($row->SuppressionSource ?? ''),
+                            'source'        => 'oempro',
+                            'bounced_at'    => $now,
+                            'created_at'    => $now,
+                            'updated_at'    => $now,
+                        ];
 
                         $imported++;
                     }
+
+                    if (!$dryRun && !empty($bouncedRows)) {
+                        // Bulk upsert bounced_emails
+                        DB::table('bounced_emails')->upsert(
+                            $bouncedRows,
+                            ['email'],
+                            ['bounce_type', 'bounce_reason', 'source', 'bounced_at', 'updated_at']
+                        );
+
+                        // Bulk mark audience_users as bounced
+                        $emails = array_column($bouncedRows, 'email');
+                        DB::table('audience_users')
+                            ->whereIn('email', $emails)
+                            ->where('bounced', false)
+                            ->update([
+                                'bounced'    => true,
+                                'is_active'  => false,
+                                'bounce_type' => 'hard',
+                                'bounced_at' => $now,
+                            ]);
+                    }
+
+                    $this->line("  Processed {$imported} suppressions...");
                 });
 
             $this->info("Done. Imported: {$imported} | Skipped (manual unsubscribes): {$skipped}");
@@ -66,31 +99,6 @@ class ImportOemproSuppressions extends Command
         } finally {
             $this->closeTunnel();
         }
-    }
-
-    protected function importSuppression(object $row, string $bounceType): void
-    {
-        $email = strtolower(trim($row->EmailAddress));
-
-        \JanDev\EmailSystem\Models\BouncedEmail::updateOrCreate(
-            ['email' => $email],
-            [
-                'bounce_type'  => $bounceType,
-                'bounce_reason' => 'OemPro suppression: ' . ($row->SuppressionSource ?? ''),
-                'source'       => 'oempro',
-                'bounced_at'   => now(),
-            ]
-        );
-
-        // Also mark existing audience_users as bounced
-        \JanDev\EmailSystem\Models\AudienceUser::where('email', $email)
-            ->where('bounced', false)
-            ->update([
-                'bounced'      => true,
-                'is_active'    => false,
-                'bounce_type'  => $bounceType,
-                'bounced_at'   => now(),
-            ]);
     }
 
     public function openTunnel(): bool
