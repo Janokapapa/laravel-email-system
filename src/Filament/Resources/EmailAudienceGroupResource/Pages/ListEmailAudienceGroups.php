@@ -3,6 +3,7 @@
 namespace JanDev\EmailSystem\Filament\Resources\EmailAudienceGroupResource\Pages;
 
 use JanDev\EmailSystem\Filament\Resources\EmailAudienceGroupResource;
+use JanDev\EmailSystem\Filament\Widgets\AudienceStatsWidget;
 use JanDev\EmailSystem\Jobs\MergeAudiencesJob;
 use JanDev\EmailSystem\Models\AudienceUser;
 use JanDev\EmailSystem\Models\EmailAudienceGroup;
@@ -17,6 +18,13 @@ use Filament\Resources\Pages\ListRecords;
 class ListEmailAudienceGroups extends ListRecords
 {
     protected static string $resource = EmailAudienceGroupResource::class;
+
+    protected function getHeaderWidgets(): array
+    {
+        return [
+            AudienceStatsWidget::class,
+        ];
+    }
 
     protected function getHeaderActions(): array
     {
