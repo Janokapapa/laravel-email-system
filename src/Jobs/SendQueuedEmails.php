@@ -3,6 +3,7 @@
 namespace JanDev\EmailSystem\Jobs;
 
 use Exception;
+use JanDev\EmailSystem\Models\Campaign;
 use JanDev\EmailSystem\Models\EmailLog;
 use JanDev\EmailSystem\Models\AudienceUser;
 use JanDev\EmailSystem\Models\JobTracker;
@@ -144,6 +145,16 @@ class SendQueuedEmails implements ShouldQueue
 
         $tracker->flush();
 
+        // Refresh campaign statuses for all affected campaigns
+        $campaignIds = $emails->pluck('campaign_id')->filter()->unique();
+        foreach ($campaignIds as $campaignId) {
+            $campaign = Campaign::find($campaignId);
+            if ($campaign && $campaign->status !== 'sent') {
+                $campaign->refreshCounts();
+                $campaign->updateStatusFromCounts();
+            }
+        }
+
         $duration = round(microtime(true) - $startTime, 2);
         Log::channel('queue')->info("SendQueuedEmails completed: {$totalSent} sent, {$totalFailed} failed in {$duration}s");
     }
@@ -216,8 +227,8 @@ class SendQueuedEmails implements ShouldQueue
 
     protected function sendViaMailgunBatch($emails, ?array $senderConfig = null): array
     {
-        $batchSize = 500;
-        $batchDelay = 2000;
+        $batchSize = (int) config('email-system.send.mailgun_batch_size', 500);
+        $batchDelay = (int) config('email-system.send.mailgun_batch_delay_ms', 2000);
         $totalSent = 0;
         $totalFailed = 0;
 
