@@ -7,7 +7,7 @@
     $failedCount = (int) ($stats->failed ?? 0);
     $queuedCount = (int) ($stats->queued ?? 0);
     $totalRecipients = $r->total_recipients ?: 1;
-    $deliveryPct = round(($r->sent_count / $totalRecipients) * 100, 1);
+    $deliveryPct = round(($sentCount / max($totalRecipients, 1)) * 100, 1);
     $clickedCount = (int) ($stats->clicked_count ?? 0);
     $clickRate = $sentCount > 0 ? round(($clickedCount / $sentCount) * 100, 1) : 0;
     $complainedCount = (int) ($stats->complained_count ?? 0);
@@ -117,8 +117,8 @@
                             <span class="cv-badge-sm" style="background:#eef2ff;color:#4f46e5">{{ $variationCount }} {{ trans_choice('variation|variations', $variationCount) }}</span>
                         @endif
                     </div>
-                    <h3 class="cv-h3">{{ e($r->subject) }}</h3>
-                    <p class="cv-sub" style="margin:0">{{ e($r->sender_display_name ?? $r->sender_name) }} &lt;{{ e($r->sender_address) }}&gt;@if($r->reply_to && $r->reply_to !== $r->sender_address) · Reply-To: {{ e($r->reply_to) }}@endif</p>
+                    <h3 class="cv-h3">{{ $r->subject }}</h3>
+                    <p class="cv-sub" style="margin:0">{{ $r->sender_display_name ?? $r->sender_name }} &lt;{{ $r->sender_address }}&gt;@if($r->reply_to && $r->reply_to !== $r->sender_address) · Reply-To: {{ $r->reply_to }}@endif</p>
                 </div>
                 @if($r->sent_at)
                     <div class="cv-sent-info">
@@ -210,8 +210,8 @@
             <div class="cv-flex cv-between" style="margin-bottom:8px">
                 <span class="cv-progress-label">{{ __('Delivery') }}</span>
                 <span class="cv-progress-val">
-                    <strong style="color:#111827">{{ number_format($r->sent_count ?? 0) }}</strong>
-                    <span style="color:#9ca3af"> / {{ number_format($r->total_recipients ?? 0) }}</span>
+                    <strong style="color:#111827">{{ number_format($sentCount) }}</strong>
+                    <span style="color:#9ca3af"> / {{ number_format($totalRecipients) }}</span>
                     <strong style="color:{{ $deliveryPct >= 100 ? '#047857' : '#374151' }};margin-left:4px">({{ $deliveryPct }}%)</strong>
                 </span>
             </div>
