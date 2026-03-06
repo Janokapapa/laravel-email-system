@@ -12,6 +12,7 @@ class SenderResolver
     protected const CACHE_TTL = 60;
 
     protected const PMTA_SERVERS_CACHE_KEY = 'email_pmta_servers_cache';
+    protected const SMTP_SERVERS_CACHE_KEY = 'email_smtp_servers_cache';
     protected const DOMAIN_ROUTING_CACHE_KEY = 'email_domain_routing_cache';
 
     /**
@@ -97,6 +98,60 @@ class SenderResolver
             }
         }
         return null;
+    }
+
+    /**
+     * Return all SMTP server definitions (cached).
+     * Each server: { name, host, port, encryption, username, password, from_address, from_name }
+     */
+    public static function smtpServers(): array
+    {
+        return Cache::remember(static::SMTP_SERVERS_CACHE_KEY, static::CACHE_TTL, function () {
+            $value = Setting::get('email', 'smtp_servers', []);
+            return is_array($value) ? $value : [];
+        });
+    }
+
+    /**
+     * Return an SMTP server config by name, or null if not found.
+     */
+    public static function smtpServer(string $name): ?array
+    {
+        foreach (static::smtpServers() as $server) {
+            if (isset($server['name']) && $server['name'] === $name) {
+                return $server;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Resolve the full SMTP config for a sender, merging smtp_servers entry with sender identity fields.
+     * Priority: sender's smtp_server reference (DB) > sender's smtp_mailer (config/mail.php name).
+     */
+    public static function resolveFullSmtpConfig(array $sender): array
+    {
+        $serverConfig = [];
+
+        // Resolve server by reference name from smtp_servers setting
+        if (!empty($sender['smtp_server'])) {
+            $serverConfig = static::smtpServer($sender['smtp_server']) ?? [];
+        }
+
+        if (!empty($serverConfig)) {
+            // Use DB-configured server — merge with sender identity fields
+            return array_merge($serverConfig, [
+                'from_address' => $sender['from_address'] ?? ($serverConfig['from_address'] ?? ''),
+                'from_name'    => $sender['from_name'] ?? ($serverConfig['from_name'] ?? ''),
+                'reply_to'     => $sender['reply_to'] ?? '',
+                'smtp_mailer'  => null, // use dynamic mailer built from server config
+            ]);
+        }
+
+        // Fallback: use smtp_mailer (config/mail.php mailer name)
+        return array_merge($sender, [
+            'smtp_mailer' => $sender['smtp_mailer'] ?? config('email-system.smtp.mailer', 'smtp'),
+        ]);
     }
 
     /**
