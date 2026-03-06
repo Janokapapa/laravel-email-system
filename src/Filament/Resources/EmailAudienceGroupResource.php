@@ -60,6 +60,7 @@ class EmailAudienceGroupResource extends Resource
                     $q2->whereNull('zerobounce_status')->orWhere('zerobounce_status', 'unverified');
                 }),
             ]))
+            ->defaultSort('created_at', 'desc')
             ->columns([
                 TextColumn::make('name')
                     ->label(__('Group Name'))
