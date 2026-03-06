@@ -91,13 +91,8 @@ class SendQueuedEmail implements ShouldQueue
             return;
         }
 
-        // Resolve server via domain routing for this recipient
-        $resolvedServer = SenderResolver::resolveServerForRecipient($this->emailLog->recipient);
-
-        // Fall back to sender's referenced server if no domain routing configured
-        if ($resolvedServer === null && !empty($senderConfig['pmta_server'])) {
-            $resolvedServer = SenderResolver::pmtaServer($senderConfig['pmta_server']);
-        }
+        // Resolve server via sender's routing profile, pmta_server fallback, or legacy global routing
+        $resolvedServer = SenderResolver::resolveServerForRecipient($this->emailLog->recipient, $senderConfig);
 
         $serverName = $resolvedServer['name'] ?? null;
 

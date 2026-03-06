@@ -14,6 +14,7 @@ class SenderResolver
     protected const PMTA_SERVERS_CACHE_KEY = 'email_pmta_servers_cache';
     protected const SMTP_SERVERS_CACHE_KEY = 'email_smtp_servers_cache';
     protected const DOMAIN_ROUTING_CACHE_KEY = 'email_domain_routing_cache';
+    protected const ROUTING_PROFILES_CACHE_KEY = 'email_routing_profiles_cache';
 
     /**
      * Return all enabled sender definitions (cached).
@@ -165,7 +166,47 @@ class SenderResolver
     }
 
     /**
+     * Return all routing profiles (cached).
+     * Each profile: { name, rules: [{ provider, server }] }
+     */
+    public static function routingProfiles(): array
+    {
+        return Cache::remember(static::ROUTING_PROFILES_CACHE_KEY, static::CACHE_TTL, function () {
+            $value = Setting::get('email', 'routing_profiles', []);
+            return is_array($value) ? $value : [];
+        });
+    }
+
+    /**
+     * Return a routing profile by name, or null if not found.
+     */
+    public static function routingProfile(string $name): ?array
+    {
+        foreach (static::routingProfiles() as $profile) {
+            if (isset($profile['name']) && $profile['name'] === $name) {
+                return $profile;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Return routing profile options for Filament Select: ['name' => 'name'].
+     */
+    public static function routingProfileOptions(): array
+    {
+        $options = [];
+        foreach (static::routingProfiles() as $profile) {
+            if (isset($profile['name'])) {
+                $options[$profile['name']] = $profile['name'];
+            }
+        }
+        return $options;
+    }
+
+    /**
      * Return domain routing rules as a flat map: ['microsoft' => 'caspmta3', 'yahoo' => 'caspmta1', ...]
+     * @deprecated Use routingProfiles() and resolveServerForRecipient($email, $sender) instead.
      */
     public static function domainRouting(): array
     {
@@ -184,25 +225,47 @@ class SenderResolver
     }
 
     /**
-     * Resolve the PMTA server config for a recipient email address using domain routing rules.
-     * Returns null if no routing is configured or server not found.
+     * Resolve the PMTA server config for a recipient email address.
+     * Uses sender's routing_profile if set, otherwise falls back to sender's pmta_server.
      */
-    public static function resolveServerForRecipient(string $email): ?array
+    public static function resolveServerForRecipient(string $email, ?array $sender = null): ?array
     {
+        // If sender has a routing_profile, use it
+        if ($sender && !empty($sender['routing_profile'])) {
+            $profile = static::routingProfile($sender['routing_profile']);
+            if ($profile && !empty($profile['rules'])) {
+                $map = [];
+                foreach ($profile['rules'] as $rule) {
+                    if (isset($rule['provider'], $rule['server']) && $rule['provider'] !== '') {
+                        $map[$rule['provider']] = $rule['server'];
+                    }
+                }
+                if (!empty($map)) {
+                    $provider = ProviderResolver::resolve($email);
+                    $serverName = $map[$provider] ?? $map['default'] ?? null;
+                    if (!empty($serverName)) {
+                        return static::pmtaServer($serverName);
+                    }
+                }
+            }
+        }
+
+        // Fallback: sender's pmta_server
+        if ($sender && !empty($sender['pmta_server'])) {
+            return static::pmtaServer($sender['pmta_server']);
+        }
+
+        // Legacy fallback: global domain_routing
         $routing = static::domainRouting();
-
-        if (empty($routing)) {
-            return null;
+        if (!empty($routing)) {
+            $provider = ProviderResolver::resolve($email);
+            $serverName = $routing[$provider] ?? $routing['default'] ?? null;
+            if (!empty($serverName)) {
+                return static::pmtaServer($serverName);
+            }
         }
 
-        $provider = ProviderResolver::resolve($email);
-        $serverName = $routing[$provider] ?? $routing['default'] ?? null;
-
-        if (empty($serverName)) {
-            return null;
-        }
-
-        return static::pmtaServer($serverName);
+        return null;
     }
 
     /**

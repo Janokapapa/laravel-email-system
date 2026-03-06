@@ -68,11 +68,8 @@ class PmtaSync extends Command
                 continue;
             }
 
-            // Resolve target server: domain routing first, then sender's pmta_server reference, then inline
-            $resolvedServer = SenderResolver::resolveServerForRecipient($emailLog->recipient);
-            if ($resolvedServer === null && !empty($senderConfig['pmta_server'])) {
-                $resolvedServer = SenderResolver::pmtaServer($senderConfig['pmta_server']);
-            }
+            // Resolve target server: routing profile → pmta_server fallback → legacy global routing
+            $resolvedServer = SenderResolver::resolveServerForRecipient($emailLog->recipient, $senderConfig);
 
             $serverName = $resolvedServer['name'] ?? null;
 
