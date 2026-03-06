@@ -132,6 +132,7 @@ class SendQueuedEmail implements ShouldQueue
                 $processed = str_replace('{{unsubscribe_url}}', $unsubscribeUrl, $processed);
             } else {
                 // HTML: full processing
+                $processed = PmtaSpooler::resolveRelativeUrls($processed);
                 $processed = PmtaSpooler::replaceUnsubscribeLinks($processed, $unsubscribeUrl);
                 if ($senderConfig['track_clicks'] ?? true) {
                     $processed = PmtaSpooler::rewriteLinksForTracking($processed, $this->emailLog->id, $unsubscribeUrl);
@@ -219,6 +220,7 @@ class SendQueuedEmail implements ShouldQueue
                 ];
             } else {
                 // HTML: full processing with layout
+                $messageContent = PmtaSpooler::resolveRelativeUrls($messageContent);
                 $messageContent = PmtaSpooler::replaceUnsubscribeLinks($messageContent, $unsubscribeUrl);
                 if ($senderConfig['track_clicks'] ?? true) {
                     $messageContent = PmtaSpooler::rewriteLinksForTracking(

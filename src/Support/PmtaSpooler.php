@@ -131,6 +131,9 @@ EOT;
             $boundary = 'b1_' . md5(uniqid((string) microtime(), true));
             $rawHtml = (string) $emailLog->message;
 
+            // Resolve relative URLs to absolute before any link processing
+            $rawHtml = self::resolveRelativeUrls($rawHtml);
+
             // Replace unsubscribe placeholders in the HTML
             if ($unsubscribeUrl) {
                 $rawHtml = self::replaceUnsubscribeLinks($rawHtml, $unsubscribeUrl);
@@ -325,5 +328,54 @@ EOT;
         );
 
         return $html;
+    }
+
+    /**
+     * Resolve relative URLs (href and src) to absolute using a base URL.
+     * Handles ../../../path, ./path, /path, and bare path patterns.
+     */
+    public static function resolveRelativeUrls(string $html, ?string $baseUrl = null): string
+    {
+        $baseUrl = rtrim($baseUrl ?: config('email-system.website_url') ?: config('app.url'), '/');
+
+        if (!$baseUrl) {
+            return $html;
+        }
+
+        return preg_replace_callback(
+            '/(<(?:a|area)\b[^>]*?href\s*=\s*"|<img\b[^>]*?src\s*=\s*")([^"]*?)(")/is',
+            function ($match) use ($baseUrl) {
+                $url = $match[2];
+
+                // Skip absolute URLs, anchors, data URIs, mailto, tel
+                if (
+                    $url === '' ||
+                    str_starts_with($url, 'http://') ||
+                    str_starts_with($url, 'https://') ||
+                    str_starts_with($url, 'mailto:') ||
+                    str_starts_with($url, 'tel:') ||
+                    str_starts_with($url, 'data:') ||
+                    str_starts_with($url, '#')
+                ) {
+                    return $match[0];
+                }
+
+                // Strip ../ and ./ prefixes
+                $path = $url;
+                while (str_starts_with($path, '../')) {
+                    $path = substr($path, 3);
+                }
+                while (str_starts_with($path, './')) {
+                    $path = substr($path, 2);
+                }
+
+                if (!str_starts_with($path, '/')) {
+                    $path = '/' . $path;
+                }
+
+                return $match[1] . $baseUrl . $path . $match[3];
+            },
+            $html
+        );
     }
 }
