@@ -47,7 +47,8 @@ class PmtaSpooler
             ? $this->localBaseDir . '/outgoing/' . $this->serverName
             : $this->localBaseDir . '/outgoing';
         foreach (glob($outgoingDir . '/*.tmp') ?: [] as $tmp) {
-            if (filemtime($tmp) < time() - 300) {
+            $mtime = @filemtime($tmp);
+            if ($mtime !== false && $mtime < time() - 300) {
                 @unlink($tmp);
             }
         }

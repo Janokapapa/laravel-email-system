@@ -55,10 +55,12 @@ class CampaignResource extends Resource
             )
             ->columns([
                 TextColumn::make('name')
-                    ->label(__('Campaign Name'))
+                    ->label(__('Campaign'))
                     ->searchable()
                     ->sortable()
-                    ->weight('bold'),
+                    ->weight('bold')
+                    ->limit(30)
+                    ->tooltip(fn (Campaign $record): ?string => strlen($record->name) > 30 ? $record->name : null),
 
                 TextColumn::make('sender_name')
                     ->label(__('Sender'))
@@ -68,7 +70,8 @@ class CampaignResource extends Resource
                 TextColumn::make('emailTemplate.name')
                     ->label(__('Template'))
                     ->default('—')
-                    ->limit(30),
+                    ->limit(20)
+                    ->toggleable(isToggledHiddenByDefault: true),
 
                 TextColumn::make('status')
                     ->label(__('Status'))
@@ -129,17 +132,17 @@ class CampaignResource extends Resource
                         $barColor = $record->status === 'sending' ? '#f59e0b' : '#22c55e';
                         $failedInfo = $failed > 0 ? " <span style=\"color:#ef4444;font-size:11px\">({$failed} " . __('failed') . ")</span>" : '';
 
-                        return '<div style="display:flex;flex-direction:column;gap:4px;min-width:100px">'
+                        return '<div style="display:flex;flex-direction:column;gap:3px;width:140px">'
                             . '<span style="font-size:12px">' . $sent . ' / ' . $total . $failedInfo . '</span>'
-                            . '<div style="width:100%;background:rgba(128,128,128,0.2);border-radius:9999px;height:8px">'
-                            . '<div style="width:' . $pct . '%;background:' . $barColor . ';border-radius:9999px;height:8px;transition:width 0.3s"></div>'
+                            . '<div style="width:100%;background:rgba(128,128,128,0.2);border-radius:9999px;height:6px">'
+                            . '<div style="width:' . $pct . '%;background:' . $barColor . ';border-radius:9999px;height:6px;transition:width 0.3s"></div>'
                             . '</div></div>';
                     })
                     ->html(),
 
                 TextColumn::make('created_at')
                     ->label(__('Created'))
-                    ->dateTime('Y-m-d H:i')
+                    ->dateTime('m-d H:i')
                     ->sortable(),
             ])
             ->filters([])
