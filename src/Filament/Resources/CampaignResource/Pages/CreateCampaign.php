@@ -302,9 +302,8 @@ class CreateCampaign extends CreateRecord
     protected function saveStepDraft(int $step): void
     {
         try {
-            // getRawState() to avoid validating unfilled steps
-            $state = $this->form->getRawState();
-            $data  = $state;
+            // Access Livewire data directly to avoid any form validation
+            $data = $this->data;
 
             $draft = [
                 'name'               => $data['name'] ?? 'Draft Campaign',

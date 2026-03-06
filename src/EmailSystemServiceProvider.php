@@ -40,6 +40,9 @@ class EmailSystemServiceProvider extends ServiceProvider
         // Load views
         $this->loadViewsFrom(__DIR__ . '/../resources/views', 'email-system');
 
+        // Load JSON translations (merged with app translations)
+        $this->loadJsonTranslationsFrom(__DIR__ . '/../resources/lang');
+
         // Register observers
         AudienceUser::observe(AudienceUserObserver::class);
 
