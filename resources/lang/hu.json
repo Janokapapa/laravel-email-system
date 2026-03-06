@@ -198,6 +198,19 @@
     "Yahoo (yahoo, ymail, aol, aim, verizon)": "Yahoo (yahoo, ymail, aol, aim, verizon)",
     "Yes": "Igen",
     "You have been successfully unsubscribed from our newsletter.": "Sikeresen leiratkozott hírlevelünkről.",
+    "After merge": "Összevonás után",
+    "All ZB Statuses": "Minden ZB státusz",
     "Audience User": "Közönség felhasználó",
-    "Audience Users": "Közönség felhasználók"
+    "Audience Users": "Közönség felhasználók",
+    "Original (default)": "Eredeti (alapértelmezett)",
+    "Queue is set to sync. Please configure a proper queue driver (e.g. database) before running ZeroBounce verification to avoid blocking the HTTP request.": "A sor szinkron módban van. Kérjük, állítson be megfelelő sor-kezelőt (pl. database) a ZeroBounce ellenőrzés futtatása előtt, hogy ne blokkolja a HTTP kérést.",
+    "Queue Not Configured": "Sor nincs konfigurálva",
+    "Random": "Véletlenszerű",
+    "Verification Started": "Ellenőrzés elindítva",
+    "Warning: No ZeroBounce Credits": "Figyelmeztetés: Nincs ZeroBounce kredit",
+    "Your ZeroBounce account has 0 credits. The verification job was dispatched but emails will not be verified until you purchase more credits.": "A ZeroBounce fiókjában 0 kredit van. Az ellenőrzési feladat elindult, de az e-mailek nem lesznek ellenőrizve, amíg nem vásárol több kreditet.",
+    "ZB Invalid": "ZB érvénytelen",
+    "ZB Valid": "ZB érvényes",
+    "ZeroBounce": "ZeroBounce",
+    "ZeroBounce Status": "ZeroBounce státusz"
 }

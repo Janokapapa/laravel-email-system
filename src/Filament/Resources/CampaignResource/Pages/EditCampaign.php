@@ -241,7 +241,7 @@ class EditCampaign extends EditRecord
                 ->schema([
                     Select::make('email_template_id')
                         ->label(__('Load from Template (optional)'))
-                        ->options(fn () => EmailTemplate::orderBy('name')->pluck('name', 'id'))
+                        ->options(fn () => EmailTemplate::orderBy('id', 'desc')->pluck('name', 'id'))
                         ->nullable()
                         ->searchable()
                         ->live()
@@ -373,20 +373,20 @@ class EditCampaign extends EditRecord
     protected function saveStepData(): void
     {
         try {
-            $state = $this->form->getState();
+            $data = $this->data;
             $this->record->update([
-                'name'                => $state['name'] ?? $this->record->name,
-                'sender_name'         => $state['sender_name'] ?? $this->record->sender_name,
-                'sender_address'      => $state['sender_address'] ?? $this->record->sender_address,
-                'sender_display_name' => $state['sender_display_name'] ?? $this->record->sender_display_name,
-                'reply_to'            => $state['reply_to'] ?? $this->record->reply_to,
-                'audience_group_ids'  => $state['audience_group_ids'] ?? $this->record->audience_group_ids,
-                'skip_providers'      => $state['skip_providers'] ?? $this->record->skip_providers,
-                'email_template_id'   => $state['email_template_id'] ?? $this->record->email_template_id,
-                'content_type'        => $state['content_type'] ?? $this->record->content_type,
-                'subject'             => $state['subject'] ?? $this->record->subject,
-                'body'                => $state['body'] ?? $this->record->body,
-                'variations'          => $state['variations'] ?? $this->record->variations,
+                'name'                => $data['name'] ?? $this->record->name,
+                'sender_name'         => $data['sender_name'] ?? $this->record->sender_name,
+                'sender_address'      => $data['sender_address'] ?? $this->record->sender_address,
+                'sender_display_name' => $data['sender_display_name'] ?? $this->record->sender_display_name,
+                'reply_to'            => $data['reply_to'] ?? $this->record->reply_to,
+                'audience_group_ids'  => $data['audience_group_ids'] ?? $this->record->audience_group_ids,
+                'skip_providers'      => $data['skip_providers'] ?? $this->record->skip_providers,
+                'email_template_id'   => $data['email_template_id'] ?? $this->record->email_template_id,
+                'content_type'        => $data['content_type'] ?? $this->record->content_type,
+                'subject'             => $data['subject'] ?? $this->record->subject,
+                'body'                => $data['body'] ?? $this->record->body,
+                'variations'          => $data['variations'] ?? $this->record->variations,
             ]);
         } catch (\Throwable $e) {
             \Illuminate\Support\Facades\Log::warning('Campaign step save failed: ' . $e->getMessage());
