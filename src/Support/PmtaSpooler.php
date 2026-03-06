@@ -233,11 +233,11 @@ EOT;
      */
     public static function rewriteLinksForTracking(string $html, int $logId, ?string $unsubscribeUrl): string
     {
-        $trackingDomain = parse_url(config('app.url'), PHP_URL_HOST);
+        $routePrefix = config('email-system.routes.prefix', 'email-system');
 
         return preg_replace_callback(
             '/<a\b([^>]*?)href\s*=\s*"([^"]*)"([^>]*?)>/is',
-            function ($match) use ($logId, $unsubscribeUrl, $trackingDomain) {
+            function ($match) use ($logId, $unsubscribeUrl, $routePrefix) {
                 $href = $match[2];
 
                 // Skip non-trackable links
@@ -248,7 +248,7 @@ EOT;
                     str_starts_with($href, 'tel:') ||
                     ($unsubscribeUrl && $href === $unsubscribeUrl) ||
                     (stripos($href, 'unsubscribe') !== false) ||
-                    ($trackingDomain && str_contains($href, $trackingDomain))
+                    str_contains($href, "/{$routePrefix}/track/")
                 ) {
                     return $match[0];
                 }
