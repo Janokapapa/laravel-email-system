@@ -66,6 +66,17 @@ class CreateCampaign extends CreateRecord
                 'body'               => $draft->body,
                 'variations'         => $draft->variations ?? [],
             ]);
+        } else {
+            // Pre-fill sender fields from default sender value
+            $senderName = $this->data['sender_name'] ?? null;
+            if ($senderName) {
+                $config = SenderResolver::get($senderName);
+                if ($config) {
+                    $this->data['sender_display_name'] = $config['from_name'] ?? '';
+                    $this->data['sender_address'] = $config['from_address'] ?? '';
+                    $this->data['reply_to'] = $config['reply_to'] ?? $config['from_address'] ?? '';
+                }
+            }
         }
     }
 
@@ -94,6 +105,18 @@ class CreateCampaign extends CreateRecord
                     Select::make('sender_name')
                         ->label(__('Sender'))
                         ->options(fn () => SenderResolver::options())
+                        ->default(function () {
+                            // Last used sender from most recent campaign
+                            $last = Campaign::whereNotNull('sender_name')
+                                ->latest('id')
+                                ->value('sender_name');
+                            if ($last && SenderResolver::get($last)) {
+                                return $last;
+                            }
+                            // Fallback: first available sender
+                            $options = SenderResolver::options();
+                            return $options ? array_key_first($options) : null;
+                        })
                         ->required()
                         ->searchable()
                         ->live()
