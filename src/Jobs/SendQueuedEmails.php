@@ -7,6 +7,7 @@ use JanDev\EmailSystem\Models\EmailLog;
 use JanDev\EmailSystem\Models\AudienceUser;
 use JanDev\EmailSystem\Models\JobTracker;
 use JanDev\EmailSystem\Mail\NewsletterMail;
+use JanDev\EmailSystem\Support\PmtaSpooler;
 use JanDev\EmailSystem\Support\SenderResolver;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -143,6 +144,29 @@ class SendQueuedEmails implements ShouldQueue
     protected function sendSingleViaSmtp(EmailLog $emailLog, ?array $senderConfig = null): void
     {
         $unsubscribeUrl = $this->generateUnsubscribeUrl($emailLog);
+        $isPlainText = ($emailLog->content_type ?? 'html') === 'text';
+
+        // Process message in-memory (not persisted)
+        $originalMessage = $emailLog->message;
+
+        if ($isPlainText) {
+            $processed = (string) $originalMessage;
+            $processed = preg_replace('/\{\{unsubscribe=(.+?)\}\}/', '$1: ' . $unsubscribeUrl, $processed);
+            $processed = str_replace('{{unsubscribe_url}}', $unsubscribeUrl ?? '', $processed);
+        } else {
+            $processed = PmtaSpooler::resolveRelativeUrls((string) $originalMessage);
+            if ($unsubscribeUrl) {
+                $processed = PmtaSpooler::replaceUnsubscribeLinks($processed, $unsubscribeUrl);
+            } else {
+                $processed = PmtaSpooler::stripUnsubscribePlaceholders($processed);
+            }
+            if ($senderConfig['track_clicks'] ?? true) {
+                $processed = PmtaSpooler::rewriteLinksForTracking($processed, $emailLog->id, $unsubscribeUrl);
+            }
+        }
+
+        $emailLog->message = $processed;
+
         $fullConfig = SenderResolver::resolveFullSmtpConfig($senderConfig ?? []);
 
         $mailerKey = null;
@@ -163,29 +187,24 @@ class SendQueuedEmails implements ShouldQueue
 
         try {
             Mail::mailer($mailer)->send(new NewsletterMail($emailLog, $unsubscribeUrl, $senderConfig));
-
-            $emailLog->update([
-                'status' => 'sent',
-                'error' => null,
-            ]);
-
-            AudienceUser::where('email', $emailLog->recipient)
-                ->whereNull('sent_at')
-                ->update(['sent_at' => now()]);
-
-            Log::channel('queue')->info('Email sent via SMTP to: ' . $emailLog->recipient);
-        } catch (Exception $e) {
-            $emailLog->update([
-                'status' => 'failed',
-                'error' => substr($e->getMessage(), 0, 200),
-            ]);
-            throw $e;
         } finally {
-            // Clear dynamic mailer config to prevent leak between queue worker jobs
+            // Restore original message and clear dynamic mailer
+            $emailLog->message = $originalMessage;
             if ($mailerKey !== null) {
                 config(["mail.mailers.{$mailerKey}" => null]);
             }
         }
+
+        $emailLog->update([
+            'status' => 'sent',
+            'error' => null,
+        ]);
+
+        AudienceUser::where('email', $emailLog->recipient)
+            ->whereNull('sent_at')
+            ->update(['sent_at' => now()]);
+
+        Log::channel('queue')->info('Email sent via SMTP to: ' . $emailLog->recipient);
     }
 
     protected function sendViaMailgunBatch($emails, ?array $senderConfig = null): array
@@ -202,7 +221,7 @@ class SendQueuedEmails implements ShouldQueue
         $domain = $senderConfig['mailgun_domain'] ?? config('email-system.mailgun.domain');
         $fromAddress = $senderConfig['from_address'] ?? config('email-system.from.address');
         $fromName = $senderConfig['from_name'] ?? config('email-system.from.name');
-        $replyToAddress = $senderConfig['reply_to'] ?? config('email-system.reply_to', $fromAddress);
+        $replyToAddress = $senderConfig['reply_to'] ?? config('email-system.reply_to');
 
         $byTemplate = $emails->groupBy('email_template_id');
 
@@ -238,22 +257,33 @@ class SendQueuedEmails implements ShouldQueue
             ];
         }
 
+        // Process message content: resolve relative URLs + unsubscribe placeholders
+        $messageContent = (string) $firstEmail->message;
+        $messageContent = PmtaSpooler::resolveRelativeUrls($messageContent);
+        $unsubscribeVar = '%recipient.unsubscribe_url%';
+        $messageContent = PmtaSpooler::replaceUnsubscribeLinks($messageContent, $unsubscribeVar);
+
         $htmlContent = view('email-system::newsletter', [
             'emailLog' => $firstEmail,
             'subject' => $firstEmail->subject,
-            'messageContent' => $firstEmail->message,
-            'unsubscribeUrl' => '%recipient.unsubscribe_url%',
+            'messageContent' => $messageContent,
+            'unsubscribeUrl' => $unsubscribeVar,
         ])->render();
 
+        $params = [
+            'from' => "{$fromName} <{$fromAddress}>",
+            'to' => $recipients,
+            'subject' => $firstEmail->subject,
+            'html' => $htmlContent,
+            'recipient-variables' => json_encode($recipientVariables),
+        ];
+
+        if ($replyToAddress) {
+            $params['h:Reply-To'] = $replyToAddress;
+        }
+
         try {
-            $response = $mgClient->messages()->send($domain, [
-                'from' => "{$fromName} <{$fromAddress}>",
-                'to' => $recipients,
-                'subject' => $firstEmail->subject,
-                'html' => $htmlContent,
-                'h:Reply-To' => $replyToAddress,
-                'recipient-variables' => json_encode($recipientVariables),
-            ]);
+            $response = $mgClient->messages()->send($domain, $params);
 
             if ($response->getId()) {
                 $messageId = trim($response->getId(), '<>');
