@@ -155,13 +155,17 @@ class CreateCampaign extends CreateRecord
                     Select::make('audience_group_ids')
                         ->label(__('Email Lists'))
                         ->options(function () {
+                            $counts = \Illuminate\Support\Facades\DB::table('audience_users')
+                                ->selectRaw('email_audience_group_id, COUNT(*) as cnt')
+                                ->where('is_active', true)
+                                ->where('bounced', false)
+                                ->groupBy('email_audience_group_id')
+                                ->pluck('cnt', 'email_audience_group_id');
+
                             return EmailAudienceGroup::orderBy('name')
                                 ->get()
-                                ->mapWithKeys(function ($group) {
-                                    $active = $group->audienceUsers()
-                                        ->where('is_active', true)
-                                        ->where('bounced', false)
-                                        ->count();
+                                ->mapWithKeys(function ($group) use ($counts) {
+                                    $active = $counts->get($group->id, 0);
                                     return [$group->id => $group->name . ' (' . number_format($active) . ' ' . __('active') . ')'];
                                 });
                         })
