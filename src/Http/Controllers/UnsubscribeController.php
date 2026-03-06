@@ -13,6 +13,8 @@ class UnsubscribeController extends Controller
 {
     public function unsubscribe(Request $request)
     {
+        $this->setLocaleFromBrowser($request);
+
         $email = $request->query('email');
         $token = $request->query('token');
 
@@ -60,5 +62,43 @@ class UnsubscribeController extends Controller
             'success' => true,
             'message' => __('You have been successfully unsubscribed from our newsletter.'),
         ]);
+    }
+
+    protected function setLocaleFromBrowser(Request $request): void
+    {
+        $supported = config('email-system.unsubscribe_locales', [
+            'en', 'de', 'fr', 'es', 'it', 'nl', 'sv', 'da', 'fi', 'no',
+            'pt', 'pl', 'cs', 'ro', 'el', 'hu',
+        ]);
+        $header = $request->header('Accept-Language', '');
+
+        // Parse Accept-Language: "en-GB,en;q=0.9,de;q=0.8" → ['en', 'de']
+        $preferred = null;
+        $maxQ = -1;
+
+        foreach (explode(',', $header) as $part) {
+            $part = trim($part);
+            if ($part === '') continue;
+
+            $segments = explode(';', $part);
+            $lang = strtolower(trim($segments[0]));
+            $q = 1.0;
+
+            if (isset($segments[1]) && preg_match('/q=([\d.]+)/', $segments[1], $m)) {
+                $q = (float) $m[1];
+            }
+
+            // Extract primary language code (en-GB → en)
+            $primary = explode('-', $lang)[0];
+
+            if ($q > $maxQ && in_array($primary, $supported)) {
+                $maxQ = $q;
+                $preferred = $primary;
+            }
+        }
+
+        if ($preferred) {
+            app()->setLocale($preferred);
+        }
     }
 }

@@ -1,0 +1,9 @@
+{
+    "Unsubscribe": "Peruuta tilaus",
+    "Unsubscribed Successfully": "Tilaus peruutettu",
+    "Unsubscribe Failed": "Tilauksen peruutus ep\u00e4onnistui",
+    "Invalid unsubscribe link.": "Virheellinen peruutuslinkki.",
+    "Invalid or expired unsubscribe link.": "Virheellinen tai vanhentunut peruutuslinkki.",
+    "You have been successfully unsubscribed from our newsletter.": "Uutiskirjeen tilaus on peruutettu onnistuneesti.",
+    "Return to Homepage": "Palaa etusivulle"
+}
