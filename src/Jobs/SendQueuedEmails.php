@@ -143,20 +143,43 @@ class SendQueuedEmails implements ShouldQueue
     protected function sendSingleViaSmtp(EmailLog $emailLog, ?array $senderConfig = null): void
     {
         $unsubscribeUrl = $this->generateUnsubscribeUrl($emailLog);
-        $mailer = $senderConfig['smtp_mailer'] ?? config('email-system.smtp.mailer', 'smtp');
+        $fullConfig = SenderResolver::resolveFullSmtpConfig($senderConfig ?? []);
 
-        Mail::mailer($mailer)->send(new NewsletterMail($emailLog, $unsubscribeUrl, $senderConfig));
+        $mailerKey = null;
+        if (!empty($fullConfig['host'])) {
+            // Dynamic mailer built from smtp_servers setting in DB
+            $mailerKey = '_smtp_' . ($fullConfig['name'] ?? 'dynamic');
+            config(["mail.mailers.{$mailerKey}" => [
+                'transport'  => 'smtp',
+                'host'       => $fullConfig['host'],
+                'port'       => (int) ($fullConfig['port'] ?? 587),
+                'encryption' => $fullConfig['encryption'] ?? 'tls',
+                'username'   => $fullConfig['username'] ?? null,
+                'password'   => $fullConfig['password'] ?? null,
+            ]]);
+        }
 
-        $emailLog->update([
-            'status' => 'sent',
-            'error' => null,
-        ]);
+        $mailer = $mailerKey ?? ($fullConfig['smtp_mailer'] ?? config('email-system.smtp.mailer', 'smtp'));
 
-        AudienceUser::where('email', $emailLog->recipient)
-            ->whereNull('sent_at')
-            ->update(['sent_at' => now()]);
+        try {
+            Mail::mailer($mailer)->send(new NewsletterMail($emailLog, $unsubscribeUrl, $senderConfig));
 
-        Log::channel('queue')->info('Email sent via SMTP to: ' . $emailLog->recipient);
+            $emailLog->update([
+                'status' => 'sent',
+                'error' => null,
+            ]);
+
+            AudienceUser::where('email', $emailLog->recipient)
+                ->whereNull('sent_at')
+                ->update(['sent_at' => now()]);
+
+            Log::channel('queue')->info('Email sent via SMTP to: ' . $emailLog->recipient);
+        } finally {
+            // Clear dynamic mailer config to prevent leak between queue worker jobs
+            if ($mailerKey !== null) {
+                config(["mail.mailers.{$mailerKey}" => null]);
+            }
+        }
     }
 
     protected function sendViaMailgunBatch($emails, ?array $senderConfig = null): array

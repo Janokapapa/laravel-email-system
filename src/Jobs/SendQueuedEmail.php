@@ -140,13 +140,36 @@ class SendQueuedEmail implements ShouldQueue
 
             $this->emailLog->message = $processed;
 
-            $mailer = $senderConfig['smtp_mailer'] ?? config('email-system.smtp.mailer', 'smtp');
+            $fullConfig = SenderResolver::resolveFullSmtpConfig($senderConfig ?? []);
 
-            Mail::mailer($mailer)->send(new NewsletterMail(
-                $this->emailLog,
-                $unsubscribeUrl,
-                $senderConfig
-            ));
+            $mailerKey = null;
+            if (!empty($fullConfig['host'])) {
+                // Dynamic mailer built from smtp_servers setting in DB
+                $mailerKey = '_smtp_' . ($fullConfig['name'] ?? 'dynamic');
+                config(["mail.mailers.{$mailerKey}" => [
+                    'transport'  => 'smtp',
+                    'host'       => $fullConfig['host'],
+                    'port'       => (int) ($fullConfig['port'] ?? 587),
+                    'encryption' => $fullConfig['encryption'] ?? 'tls',
+                    'username'   => $fullConfig['username'] ?? null,
+                    'password'   => $fullConfig['password'] ?? null,
+                ]]);
+            }
+
+            $mailer = $mailerKey ?? ($fullConfig['smtp_mailer'] ?? config('email-system.smtp.mailer', 'smtp'));
+
+            try {
+                Mail::mailer($mailer)->send(new NewsletterMail(
+                    $this->emailLog,
+                    $unsubscribeUrl,
+                    $senderConfig
+                ));
+            } finally {
+                // Clear dynamic mailer config to prevent leak between queue worker jobs
+                if ($mailerKey !== null) {
+                    config(["mail.mailers.{$mailerKey}" => null]);
+                }
+            }
 
             // Restore original message
             $this->emailLog->message = $originalMessage;
