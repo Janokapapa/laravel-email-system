@@ -101,6 +101,13 @@ class SendQueuedEmails implements ShouldQueue
 
         // Send SMTP emails one by one
         foreach ($smtpEmails as $email) {
+            // Re-check status from DB — email may have been cancelled mid-run
+            $freshStatus = EmailLog::where('id', $email->id)->value('status');
+            if ($freshStatus !== 'queued') {
+                $tracker->incrementProgress();
+                continue;
+            }
+
             try {
                 $senderConfig = $email->sender_name ? SenderResolver::get($email->sender_name) : null;
                 $this->sendSingleViaSmtp($email, $senderConfig);
