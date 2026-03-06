@@ -174,6 +174,12 @@ class SendQueuedEmails implements ShouldQueue
                 ->update(['sent_at' => now()]);
 
             Log::channel('queue')->info('Email sent via SMTP to: ' . $emailLog->recipient);
+        } catch (Exception $e) {
+            $emailLog->update([
+                'status' => 'failed',
+                'error' => substr($e->getMessage(), 0, 200),
+            ]);
+            throw $e;
         } finally {
             // Clear dynamic mailer config to prevent leak between queue worker jobs
             if ($mailerKey !== null) {
