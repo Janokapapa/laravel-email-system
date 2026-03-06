@@ -31,7 +31,7 @@ class SendQueuedEmails implements ShouldQueue
         $defaultDriver = config('email-system.driver', 'smtp');
 
         // Read send config from DB settings, fall back to config/email-system.php
-        $sendConfig = \JanDev\UserManagement\Models\Setting::get('email', 'send_config', []);
+        $sendConfig = \JanDev\UserManagement\Models\Setting::get('system', 'email_send_config', []);
         $maxPerRun = (int) ($sendConfig['max_per_run'] ?? config('email-system.send.max_per_run', 100));
         $delaySeconds = (int) ($sendConfig['delay_seconds'] ?? config('email-system.send.delay_seconds', 1));
 
@@ -239,7 +239,7 @@ class SendQueuedEmails implements ShouldQueue
 
     protected function sendViaMailgunBatch($emails, ?array $senderConfig = null): array
     {
-        $sendConfig = \JanDev\UserManagement\Models\Setting::get('email', 'send_config', []);
+        $sendConfig = \JanDev\UserManagement\Models\Setting::get('system', 'email_send_config', []);
         $batchSize = (int) ($sendConfig['mailgun_batch_size'] ?? config('email-system.send.mailgun_batch_size', 500));
         $batchDelay = (int) ($sendConfig['mailgun_batch_delay_ms'] ?? config('email-system.send.mailgun_batch_delay_ms', 2000));
         $totalSent = 0;
