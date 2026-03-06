@@ -3,6 +3,7 @@
 namespace JanDev\EmailSystem\Jobs;
 
 use Exception;
+use JanDev\EmailSystem\Models\Campaign;
 use JanDev\EmailSystem\Models\EmailLog;
 use JanDev\EmailSystem\Models\AudienceUser;
 use JanDev\EmailSystem\Mail\NewsletterMail;
@@ -72,11 +73,14 @@ class SendQueuedEmail implements ShouldQueue
             } else {
                 $this->sendViaSmtp($senderConfig);
             }
+
+            $this->refreshCampaignStatus();
         } catch (Exception $e) {
             $this->emailLog->update([
                 'status' => 'failed',
                 'error' => $e->getMessage(),
             ]);
+            $this->refreshCampaignStatus();
             Log::channel('queue')->error('SendQueuedEmail error: ' . $e->getMessage());
             throw $e;
         }
@@ -294,11 +298,28 @@ class SendQueuedEmail implements ShouldQueue
         });
     }
 
+    protected function refreshCampaignStatus(): void
+    {
+        if (!$this->emailLog->campaign_id) {
+            return;
+        }
+
+        $campaign = Campaign::find($this->emailLog->campaign_id);
+        if (!$campaign || $campaign->status === 'sent') {
+            return;
+        }
+
+        $campaign->refreshCounts();
+        $campaign->updateStatusFromCounts();
+    }
+
     public function failed(\Throwable $exception): void
     {
         $this->emailLog->update([
             'status' => 'failed',
             'error' => 'Final failure: ' . $exception->getMessage(),
         ]);
+
+        $this->refreshCampaignStatus();
     }
 }
