@@ -329,9 +329,7 @@ class CreateCampaign extends CreateRecord
                 $this->draftCampaignId = $campaign->id;
             }
 
-            // Update URL so page refresh resumes this draft
-            $url = $this->getResource()::getUrl('create') . '?draft=' . $this->draftCampaignId;
-            $this->js("window.history.replaceState({}, '', '{$url}')");
+            // Draft saved — user can resume from campaign list if they navigate away
         } catch (\Throwable $e) {
             // Non-fatal — wizard continues even if draft save fails
             \Illuminate\Support\Facades\Log::warning('Campaign draft save failed: ' . $e->getMessage());
