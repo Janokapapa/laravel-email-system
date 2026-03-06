@@ -16,9 +16,19 @@ class SenderResolver
     protected const DOMAIN_ROUTING_CACHE_KEY = 'email_domain_routing_cache';
 
     /**
-     * Return all sender definitions (cached).
+     * Return all enabled sender definitions (cached).
      */
     public static function all(): array
+    {
+        return array_values(array_filter(static::allIncludingDisabled(), function (array $sender) {
+            return ($sender['enabled'] ?? true) === true;
+        }));
+    }
+
+    /**
+     * Return all sender definitions including disabled ones (cached).
+     */
+    public static function allIncludingDisabled(): array
     {
         return Cache::remember(static::CACHE_KEY, static::CACHE_TTL, function () {
             $value = Setting::get('email', 'senders', []);
