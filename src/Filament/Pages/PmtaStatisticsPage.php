@@ -20,6 +20,13 @@ class PmtaStatisticsPage extends Page
 
     protected string $view = 'email-system::filament.pages.pmta-statistics';
 
+    public static function canAccess(): bool
+    {
+        $permission = config('email-system.permission', 'manage marketing');
+
+        return auth()->user()?->can($permission) ?? false;
+    }
+
     public int $selectedPeriod = 7;
 
     public function setPeriod(int $days): void

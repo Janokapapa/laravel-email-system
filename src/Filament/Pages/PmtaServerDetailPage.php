@@ -16,6 +16,13 @@ class PmtaServerDetailPage extends Page
 
     protected string $view = 'email-system::filament.pages.pmta-server-detail';
 
+    public static function canAccess(): bool
+    {
+        $permission = config('email-system.permission', 'manage marketing');
+
+        return auth()->user()?->can($permission) ?? false;
+    }
+
     public string $server = '';
 
     public int $selectedPeriod = 7;
