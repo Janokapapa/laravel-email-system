@@ -204,7 +204,7 @@ class SendQueuedEmail implements ShouldQueue
 
             $fromAddress = $senderConfig['from_address'] ?? config('email-system.from.address');
             $fromName = $senderConfig['from_name'] ?? config('email-system.from.name');
-            $replyTo = $senderConfig['reply_to'] ?? config('email-system.reply_to', $fromAddress);
+            $replyTo = $senderConfig['reply_to'] ?? config('email-system.reply_to');
 
             if ($isPlainText) {
                 // Plain text: replace unsubscribe placeholders as URLs
@@ -216,7 +216,6 @@ class SendQueuedEmail implements ShouldQueue
                     'to' => $this->emailLog->recipient,
                     'subject' => $this->emailLog->subject,
                     'text' => $messageContent,
-                    'h:Reply-To' => $replyTo,
                 ];
             } else {
                 // HTML: full processing with layout
@@ -242,8 +241,11 @@ class SendQueuedEmail implements ShouldQueue
                     'to' => $this->emailLog->recipient,
                     'subject' => $this->emailLog->subject,
                     'html' => $htmlContent,
-                    'h:Reply-To' => $replyTo,
                 ];
+            }
+
+            if ($replyTo) {
+                $params['h:Reply-To'] = $replyTo;
             }
 
             $response = $mgClient->messages()->send($domain, $params);

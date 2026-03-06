@@ -24,12 +24,12 @@ class NewsletterMail extends Mailable
     {
         $fromAddress = $this->senderConfig['from_address'] ?? config('email-system.from.address');
         $fromName = $this->senderConfig['from_name'] ?? config('email-system.from.name');
-        $replyTo = $this->senderConfig['reply_to'] ?? config('email-system.reply_to', $fromAddress);
+        $replyTo = $this->senderConfig['reply_to'] ?? config('email-system.reply_to');
 
         return new Envelope(
             from: new Address($fromAddress, $fromName),
             to: [new Address($this->emailLog->recipient, $this->emailLog->recipient_name ?? '')],
-            replyTo: [new Address($replyTo)],
+            replyTo: $replyTo ? [new Address($replyTo)] : [],
             subject: $this->emailLog->subject,
         );
     }
