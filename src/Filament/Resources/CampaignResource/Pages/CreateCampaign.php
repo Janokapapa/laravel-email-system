@@ -168,7 +168,7 @@ class CreateCampaign extends CreateRecord
                 ->schema([
                     Select::make('email_template_id')
                         ->label(__('Load from Template (optional)'))
-                        ->options(fn () => EmailTemplate::orderBy('name')->pluck('name', 'id'))
+                        ->options(fn () => EmailTemplate::orderBy('id', 'desc')->pluck('name', 'id'))
                         ->nullable()
                         ->searchable()
                         ->live()
@@ -302,8 +302,9 @@ class CreateCampaign extends CreateRecord
     protected function saveStepDraft(int $step): void
     {
         try {
-            $state = $this->form->getState();
-            $data  = $this->mutateFormDataBeforeCreate($state);
+            // getRawState() to avoid validating unfilled steps
+            $state = $this->form->getRawState();
+            $data  = $state;
 
             $draft = [
                 'name'               => $data['name'] ?? 'Draft Campaign',
@@ -311,6 +312,7 @@ class CreateCampaign extends CreateRecord
                 'sender_name'        => $data['sender_name'] ?? null,
                 'sender_address'     => $data['sender_address'] ?? null,
                 'sender_display_name' => $data['sender_display_name'] ?? null,
+                'reply_to'           => $data['reply_to'] ?? null,
                 'email_template_id'  => $data['email_template_id'] ?? null,
                 'content_type'       => $data['content_type'] ?? 'html',
                 'subject'            => $data['subject'] ?? null,
