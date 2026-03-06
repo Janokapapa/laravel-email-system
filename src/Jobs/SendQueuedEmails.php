@@ -30,14 +30,26 @@ class SendQueuedEmails implements ShouldQueue
         $startTime = microtime(true);
         $defaultDriver = config('email-system.driver', 'smtp');
 
-        $maxPerRun = config('email-system.send.max_per_run', 100);
-        $delaySeconds = config('email-system.send.delay_seconds', 1);
+        // Read send config from DB settings, fall back to config/email-system.php
+        $sendConfig = \JanDev\UserManagement\Models\Setting::get('email', 'send_config', []);
+        $maxPerRun = (int) ($sendConfig['max_per_run'] ?? config('email-system.send.max_per_run', 100));
+        $delaySeconds = (int) ($sendConfig['delay_seconds'] ?? config('email-system.send.delay_seconds', 1));
+
+        // Get IDs of paused campaigns to exclude
+        $pausedCampaignIds = Campaign::where('status', 'paused')->pluck('id')->toArray();
 
         // Only process 'queued' emails — 'spooled' (PMTA) are handled by PmtaSync command
-        $emails = EmailLog::where('status', 'queued')
-            ->where('created_at', '>=', now()->subDay())
-            ->take($maxPerRun)
-            ->get();
+        $query = EmailLog::where('status', 'queued')
+            ->where('created_at', '>=', now()->subDay());
+
+        if (!empty($pausedCampaignIds)) {
+            $query->where(function ($q) use ($pausedCampaignIds) {
+                $q->whereNull('campaign_id')
+                  ->orWhereNotIn('campaign_id', $pausedCampaignIds);
+            });
+        }
+
+        $emails = $query->take($maxPerRun)->get();
 
         if ($emails->isEmpty()) {
             Log::channel('queue')->info('SendQueuedEmails: No queued emails found');
@@ -227,8 +239,9 @@ class SendQueuedEmails implements ShouldQueue
 
     protected function sendViaMailgunBatch($emails, ?array $senderConfig = null): array
     {
-        $batchSize = (int) config('email-system.send.mailgun_batch_size', 500);
-        $batchDelay = (int) config('email-system.send.mailgun_batch_delay_ms', 2000);
+        $sendConfig = \JanDev\UserManagement\Models\Setting::get('email', 'send_config', []);
+        $batchSize = (int) ($sendConfig['mailgun_batch_size'] ?? config('email-system.send.mailgun_batch_size', 500));
+        $batchDelay = (int) ($sendConfig['mailgun_batch_delay_ms'] ?? config('email-system.send.mailgun_batch_delay_ms', 2000));
         $totalSent = 0;
         $totalFailed = 0;
 

@@ -77,6 +77,11 @@ class Campaign extends Model
 
     public function updateStatusFromCounts(): void
     {
+        // Don't override paused status — only manual resume should change it
+        if ($this->status === 'paused') {
+            return;
+        }
+
         $processed = $this->sent_count + $this->failed_count;
 
         if ($this->total_recipients === 0) {

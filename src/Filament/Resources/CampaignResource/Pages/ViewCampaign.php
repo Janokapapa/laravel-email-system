@@ -73,4 +73,26 @@ class ViewCampaign extends Page
         $labels = ['yahoo' => 'Yahoo', 'microsoft' => 'Microsoft', 'gmail' => 'Gmail', 'icloud' => 'iCloud'];
         return collect($providers)->map(fn ($p) => $labels[$p] ?? $p)->join(', ');
     }
+
+    public function pauseCampaign(): void
+    {
+        $this->record->update(['status' => 'paused']);
+        $this->record->refresh();
+
+        \Filament\Notifications\Notification::make()
+            ->title(__('Campaign paused'))
+            ->success()
+            ->send();
+    }
+
+    public function resumeCampaign(): void
+    {
+        $this->record->update(['status' => 'sending']);
+        $this->record->refresh();
+
+        \Filament\Notifications\Notification::make()
+            ->title(__('Campaign resumed'))
+            ->success()
+            ->send();
+    }
 }

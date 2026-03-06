@@ -20,6 +20,7 @@
     $statusColors = match($r->status) {
         'sent' => ['bg' => '#d1fae5', 'text' => '#047857', 'bar' => '#10b981'],
         'sending' => ['bg' => '#fef3c7', 'text' => '#b45309', 'bar' => '#f59e0b'],
+        'paused' => ['bg' => '#e0e7ff', 'text' => '#4338ca', 'bar' => '#6366f1'],
         'partial' => ['bg' => '#dbeafe', 'text' => '#1d4ed8', 'bar' => '#3b82f6'],
         'failed' => ['bg' => '#fee2e2', 'text' => '#dc2626', 'bar' => '#ef4444'],
         default => ['bg' => '#f3f4f6', 'text' => '#6b7280', 'bar' => '#9ca3af'],
@@ -27,6 +28,7 @@
     $statusLabel = match($r->status) {
         'new' => __('New'),
         'sending' => __('Sending'),
+        'paused' => __('Paused'),
         'sent' => __('Sent'),
         'partial' => __('Partial'),
         'failed' => __('Failed'),
@@ -110,6 +112,18 @@
                             @endif
                             {{ $statusLabel }}
                         </span>
+                        @if(in_array($r->status, ['sending', 'partial']))
+                            <button wire:click="pauseCampaign" wire:confirm="{{ __('Pause this campaign? Queued emails will not be sent until resumed.') }}" style="display:inline-flex;align-items:center;gap:4px;border-radius:6px;padding:4px 10px;font-size:12px;font-weight:500;border:1px solid #e5e7eb;background:#fff;color:#374151;cursor:pointer">
+                                <svg style="width:14px;height:14px" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path d="M5.75 3a.75.75 0 0 0-.75.75v12.5c0 .414.336.75.75.75h1.5a.75.75 0 0 0 .75-.75V3.75A.75.75 0 0 0 7.25 3h-1.5ZM12.75 3a.75.75 0 0 0-.75.75v12.5c0 .414.336.75.75.75h1.5a.75.75 0 0 0 .75-.75V3.75a.75.75 0 0 0-.75-.75h-1.5Z"/></svg>
+                                {{ __('Pause') }}
+                            </button>
+                        @endif
+                        @if($r->status === 'paused')
+                            <button wire:click="resumeCampaign" style="display:inline-flex;align-items:center;gap:4px;border-radius:6px;padding:4px 10px;font-size:12px;font-weight:500;border:1px solid #059669;background:#ecfdf5;color:#059669;cursor:pointer">
+                                <svg style="width:14px;height:14px" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path d="M6.3 2.84A1.5 1.5 0 0 0 4 4.11v11.78a1.5 1.5 0 0 0 2.3 1.27l9.344-5.891a1.5 1.5 0 0 0 0-2.538L6.3 2.841Z"/></svg>
+                                {{ __('Resume') }}
+                            </button>
+                        @endif
                         @if($r->content_type === 'text')
                             <span class="cv-badge-sm" style="background:#f3f4f6;color:#6b7280">{{ __('Plain Text') }}</span>
                         @endif
