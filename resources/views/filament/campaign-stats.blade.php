@@ -58,12 +58,9 @@
     </div>
 
     {{-- Click rate --}}
-    @php
-        $processedCount = ($stats->sent ?? 0) + ($stats->delivered ?? 0);
-    @endphp
-    @if($processedCount > 0 && ($stats->clicked_count ?? 0) > 0)
+    @if(($stats->sent ?? 0) > 0 && ($stats->clicked_count ?? 0) > 0)
         @php
-            $clickRate = round(($stats->clicked_count / $processedCount) * 100, 1);
+            $clickRate = round(($stats->clicked_count / $stats->sent) * 100, 1);
         @endphp
         <div>
             <div class="flex justify-between text-sm mb-1">

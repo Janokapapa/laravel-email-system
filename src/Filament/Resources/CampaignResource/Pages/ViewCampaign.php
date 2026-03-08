@@ -30,7 +30,7 @@ class ViewCampaign extends Page
         return EmailLog::where('campaign_id', $this->record->id)
             ->selectRaw("
                 COUNT(*) as total,
-                SUM(CASE WHEN status IN ('sent','spooled') THEN 1 ELSE 0 END) as sent,
+                SUM(CASE WHEN status IN ('sent','spooled','delivered') THEN 1 ELSE 0 END) as sent,
                 SUM(CASE WHEN status = 'delivered' THEN 1 ELSE 0 END) as delivered,
                 SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed,
                 SUM(CASE WHEN status = 'queued' THEN 1 ELSE 0 END) as queued,

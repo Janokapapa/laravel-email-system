@@ -8,10 +8,9 @@
     $failedCount = (int) ($stats->failed ?? 0);
     $queuedCount = (int) ($stats->queued ?? 0);
     $totalRecipients = $r->total_recipients ?: 1;
-    $processedCount = $sentCount + $deliveredCount;
-    $deliveryPct = round(($processedCount / max($totalRecipients, 1)) * 100, 1);
+    $deliveryPct = round(($sentCount / max($totalRecipients, 1)) * 100, 1);
     $clickedCount = (int) ($stats->clicked_count ?? 0);
-    $clickRate = $processedCount > 0 ? round(($clickedCount / $processedCount) * 100, 1) : 0;
+    $clickRate = $sentCount > 0 ? round(($clickedCount / $sentCount) * 100, 1) : 0;
     $complainedCount = (int) ($stats->complained_count ?? 0);
     $hardBounce = (int) ($stats->hard_bounce ?? 0);
     $softBounce = (int) ($stats->soft_bounce ?? 0);
