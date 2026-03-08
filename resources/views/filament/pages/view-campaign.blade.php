@@ -80,6 +80,14 @@
     .cv-progress-label { font-size: 13px; font-weight: 500; color: #374151; }
     .dark .cv-progress-label { color: #d1d5db; }
     .cv-progress-val { font-size: 13px; }
+    .cv-progress-num { color: #111827; }
+    .dark .cv-progress-num { color: #fff; }
+    .cv-progress-pct { color: #374151; }
+    .dark .cv-progress-pct { color: #d1d5db; }
+    .cv-progress-done { color: #047857; }
+    .dark .cv-progress-done { color: #34d399; }
+    .cv-divider-top { border-top: 1px solid #f3f4f6; padding-top: 20px; }
+    .dark .cv-divider-top { border-color: rgb(39 39 42); }
     .cv-section-title { font-size: 15px; font-weight: 600; color: #111827; margin: 0; }
     .dark .cv-section-title { color: #fff; }
     .cv-issue { border-radius: 8px; padding: 12px; }
@@ -237,14 +245,14 @@
             </div>
         </div>
 
-        {{-- Delivery progress --}}
-        <div style="border-top:1px solid #f3f4f6;padding-top:20px">
+        {{-- Sending progress --}}
+        <div style="border-top:1px solid #f3f4f6;padding-top:20px" class="cv-divider-top">
             <div class="cv-flex cv-between" style="margin-bottom:8px">
-                <span class="cv-progress-label">{{ __('Delivery') }}</span>
+                <span class="cv-progress-label">{{ __('Sending progress') }}</span>
                 <span class="cv-progress-val">
-                    <strong style="color:#111827">{{ number_format($sentCount) }}</strong>
+                    <strong class="cv-progress-num">{{ number_format($sentCount) }}</strong>
                     <span style="color:#9ca3af"> / {{ number_format($totalRecipients) }}</span>
-                    <strong style="color:{{ $deliveryPct >= 100 ? '#047857' : '#374151' }};margin-left:4px">({{ $deliveryPct }}%)</strong>
+                    <strong class="cv-progress-pct {{ $deliveryPct >= 100 ? 'cv-progress-done' : '' }}" style="margin-left:4px">({{ $deliveryPct }}%)</strong>
                 </span>
             </div>
             <div class="cv-progress-wrap">
