@@ -242,7 +242,7 @@
             <div class="cv-flex cv-between" style="margin-bottom:8px">
                 <span class="cv-progress-label">{{ __('Delivery') }}</span>
                 <span class="cv-progress-val">
-                    <strong style="color:#111827">{{ number_format($processedCount) }}</strong>
+                    <strong style="color:#111827">{{ number_format($sentCount) }}</strong>
                     <span style="color:#9ca3af"> / {{ number_format($totalRecipients) }}</span>
                     <strong style="color:{{ $deliveryPct >= 100 ? '#047857' : '#374151' }};margin-left:4px">({{ $deliveryPct }}%)</strong>
                 </span>
