@@ -41,6 +41,7 @@ class EmailLog extends Model
         'bounced_at',
         'complained',
         'complained_at',
+        'delivered_at',
     ];
 
     protected $casts = [
@@ -53,6 +54,7 @@ class EmailLog extends Model
         'bounced_at' => 'datetime',
         'complained' => 'boolean',
         'complained_at' => 'datetime',
+        'delivered_at' => 'datetime',
     ];
 
     public function emailTemplate()
@@ -74,6 +76,7 @@ class EmailLog extends Model
     {
         return match($this->status) {
             'sent' => 'Sent',
+            'delivered' => 'Delivered',
             'queued' => 'Queued',
             'spooled' => 'Spooled',
             'failed' => 'Failed',
@@ -94,6 +97,14 @@ class EmailLog extends Model
         $this->update([
             'clicked' => true,
             'clicked_at' => now(),
+        ]);
+    }
+
+    public function markAsDelivered(): void
+    {
+        $this->update([
+            'status' => 'delivered',
+            'delivered_at' => now(),
         ]);
     }
 

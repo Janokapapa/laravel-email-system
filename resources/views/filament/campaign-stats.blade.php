@@ -1,11 +1,19 @@
 <div class="space-y-6">
     {{-- Summary cards --}}
     <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        {{-- Sent --}}
-        <div class="bg-emerald-50 dark:bg-emerald-900/20 rounded-xl p-4 text-center">
-            <div class="text-3xl font-bold text-emerald-600 dark:text-emerald-400">{{ number_format($stats->sent ?? 0) }}</div>
-            <div class="text-sm font-medium text-emerald-700 dark:text-emerald-300">{{ __('Sent') }}</div>
+        {{-- Sent (handed to provider) --}}
+        <div class="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-4 text-center">
+            <div class="text-3xl font-bold text-blue-600 dark:text-blue-400">{{ number_format($stats->sent ?? 0) }}</div>
+            <div class="text-sm font-medium text-blue-700 dark:text-blue-300">{{ __('Sent') }}</div>
         </div>
+
+        {{-- Delivered (confirmed by Mailgun) --}}
+        @if(($stats->delivered ?? 0) > 0)
+        <div class="bg-emerald-50 dark:bg-emerald-900/20 rounded-xl p-4 text-center">
+            <div class="text-3xl font-bold text-emerald-600 dark:text-emerald-400">{{ number_format($stats->delivered) }}</div>
+            <div class="text-sm font-medium text-emerald-700 dark:text-emerald-300">{{ __('Delivered') }}</div>
+        </div>
+        @endif
 
         {{-- Queued (only if > 0) --}}
         @if(($stats->queued ?? 0) > 0)
@@ -50,9 +58,12 @@
     </div>
 
     {{-- Click rate --}}
-    @if(($stats->sent ?? 0) > 0 && ($stats->clicked_count ?? 0) > 0)
+    @php
+        $processedCount = ($stats->sent ?? 0) + ($stats->delivered ?? 0);
+    @endphp
+    @if($processedCount > 0 && ($stats->clicked_count ?? 0) > 0)
         @php
-            $clickRate = round(($stats->clicked_count / $stats->sent) * 100, 1);
+            $clickRate = round(($stats->clicked_count / $processedCount) * 100, 1);
         @endphp
         <div>
             <div class="flex justify-between text-sm mb-1">

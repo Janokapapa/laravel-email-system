@@ -27,6 +27,7 @@ class Campaign extends Model
         'total_recipients',
         'sent_count',
         'failed_count',
+        'delivered_count',
         'current_step',
         'sent_at',
     ];
@@ -38,6 +39,7 @@ class Campaign extends Model
         'total_recipients' => 'integer',
         'sent_count' => 'integer',
         'failed_count' => 'integer',
+        'delivered_count' => 'integer',
         'current_step' => 'integer',
         'sent_at' => 'datetime',
     ];
@@ -65,13 +67,15 @@ class Campaign extends Model
     {
         $counts = EmailLog::where('campaign_id', $this->id)
             ->selectRaw("
-                SUM(CASE WHEN status IN ('sent', 'spooled') THEN 1 ELSE 0 END) as sent,
-                SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed
+                SUM(CASE WHEN status IN ('sent', 'spooled', 'delivered') THEN 1 ELSE 0 END) as sent,
+                SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed,
+                SUM(CASE WHEN status = 'delivered' THEN 1 ELSE 0 END) as delivered
             ")
             ->first();
 
         $this->sent_count = (int) ($counts->sent ?? 0);
         $this->failed_count = (int) ($counts->failed ?? 0);
+        $this->delivered_count = (int) ($counts->delivered ?? 0);
         $this->save();
     }
 

@@ -4,12 +4,14 @@
     $stats = $this->getStats();
     $audienceStats = $this->getAudienceStats();
     $sentCount = (int) ($stats->sent ?? 0);
+    $deliveredCount = (int) ($stats->delivered ?? 0);
     $failedCount = (int) ($stats->failed ?? 0);
     $queuedCount = (int) ($stats->queued ?? 0);
     $totalRecipients = $r->total_recipients ?: 1;
-    $deliveryPct = round(($sentCount / max($totalRecipients, 1)) * 100, 1);
+    $processedCount = $sentCount + $deliveredCount;
+    $deliveryPct = round(($processedCount / max($totalRecipients, 1)) * 100, 1);
     $clickedCount = (int) ($stats->clicked_count ?? 0);
-    $clickRate = $sentCount > 0 ? round(($clickedCount / $sentCount) * 100, 1) : 0;
+    $clickRate = $processedCount > 0 ? round(($clickedCount / $processedCount) * 100, 1) : 0;
     $complainedCount = (int) ($stats->complained_count ?? 0);
     $hardBounce = (int) ($stats->hard_bounce ?? 0);
     $softBounce = (int) ($stats->soft_bounce ?? 0);
@@ -166,17 +168,34 @@
 
     {{-- Stats + Progress --}}
     <div class="cv-card cv-pad">
-        <div class="cv-grid {{ $queuedCount > 0 ? 'cv-grid-4' : 'cv-grid-3' }}" style="margin-bottom:24px">
-            {{-- Delivered --}}
+        @php
+            $statCols = 2 + ($deliveredCount > 0 ? 1 : 0) + ($queuedCount > 0 ? 1 : 0);
+            $statGrid = $statCols >= 4 ? 'cv-grid-4' : 'cv-grid-3';
+        @endphp
+        <div class="cv-grid {{ $statGrid }}" style="margin-bottom:24px">
+            {{-- Sent (handed to provider) --}}
+            <div class="cv-stat">
+                <div class="cv-stat-icon" style="background:#dbeafe">
+                    <svg style="width:18px;height:18px;color:#1d4ed8" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path d="M3 4a2 2 0 0 0-2 2v1.161l8.441 4.221a1.25 1.25 0 0 0 1.118 0L19 7.162V6a2 2 0 0 0-2-2H3Z"/><path d="m19 8.839-7.77 3.885a2.75 2.75 0 0 1-2.46 0L1 8.839V14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8.839Z"/></svg>
+                </div>
+                <div>
+                    <div class="cv-stat-num">{{ number_format($sentCount) }}</div>
+                    <div class="cv-stat-label">{{ __('Sent') }}</div>
+                </div>
+            </div>
+
+            {{-- Delivered (confirmed by Mailgun) --}}
+            @if($deliveredCount > 0)
             <div class="cv-stat">
                 <div class="cv-stat-icon" style="background:#d1fae5">
                     <svg style="width:18px;height:18px;color:#047857" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm3.857-9.809a.75.75 0 0 0-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 1 0-1.06 1.061l2.5 2.5a.75.75 0 0 0 1.137-.089l4-5.5Z" clip-rule="evenodd"/></svg>
                 </div>
                 <div>
-                    <div class="cv-stat-num">{{ number_format($sentCount) }}</div>
+                    <div class="cv-stat-num">{{ number_format($deliveredCount) }}</div>
                     <div class="cv-stat-label">{{ __('Delivered') }}</div>
                 </div>
             </div>
+            @endif
 
             {{-- Clicked --}}
             <div class="cv-stat">
@@ -224,7 +243,7 @@
             <div class="cv-flex cv-between" style="margin-bottom:8px">
                 <span class="cv-progress-label">{{ __('Delivery') }}</span>
                 <span class="cv-progress-val">
-                    <strong style="color:#111827">{{ number_format($sentCount) }}</strong>
+                    <strong style="color:#111827">{{ number_format($processedCount) }}</strong>
                     <span style="color:#9ca3af"> / {{ number_format($totalRecipients) }}</span>
                     <strong style="color:{{ $deliveryPct >= 100 ? '#047857' : '#374151' }};margin-left:4px">({{ $deliveryPct }}%)</strong>
                 </span>

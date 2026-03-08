@@ -106,7 +106,7 @@ class CampaignResource extends Resource
                         if ($record->status === 'sending') {
                             $counts = EmailLog::where('campaign_id', $record->id)
                                 ->selectRaw("
-                                    SUM(CASE WHEN status IN ('sent', 'spooled') THEN 1 ELSE 0 END) as sent,
+                                    SUM(CASE WHEN status IN ('sent', 'spooled', 'delivered') THEN 1 ELSE 0 END) as sent,
                                     SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed
                                 ")
                                 ->first();
@@ -197,6 +197,7 @@ class CampaignResource extends Resource
                         $clone->total_recipients = 0;
                         $clone->sent_count = 0;
                         $clone->failed_count = 0;
+                        $clone->delivered_count = 0;
                         $clone->sent_at = null;
                         $clone->save();
 

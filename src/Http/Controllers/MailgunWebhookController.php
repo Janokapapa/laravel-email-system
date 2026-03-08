@@ -33,6 +33,7 @@ class MailgunWebhookController extends Controller
             'message_id' => $eventData['message']['headers']['message-id'] ?? null,
             'severity' => $eventData['severity'] ?? null,
             'delivery_status' => $eventData['delivery-status'] ?? [],
+            'timestamp' => $eventData['timestamp'] ?? null,
         ];
 
         ProcessMailgunWebhook::dispatch($minimalData);

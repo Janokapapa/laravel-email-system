@@ -69,6 +69,7 @@ class EmailLogResource extends Resource
                     ->badge()
                     ->color(fn (string $state): string => match ($state) {
                         'sent' => 'success',
+                        'delivered' => 'success',
                         'queued' => 'warning',
                         'spooled' => 'info',
                         'failed' => 'danger',
@@ -91,6 +92,7 @@ class EmailLogResource extends Resource
                         'queued' => __('Queued'),
                         'spooled' => __('Spooled (PMTA)'),
                         'sent' => __('Sent'),
+                        'delivered' => __('Delivered'),
                         'failed' => __('Failed'),
                     ]),
                 SelectFilter::make('sender_name')

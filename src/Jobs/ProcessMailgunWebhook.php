@@ -161,13 +161,17 @@ class ProcessMailgunWebhook implements ShouldQueue
     {
         $messageId = $this->data['message_id'] ?? null;
         $recipient = $this->data['recipient'] ?? null;
+        $timestamp = $this->data['timestamp'] ?? null;
 
         if ($messageId && $recipient) {
+            $deliveredAt = $timestamp ? \Carbon\Carbon::createFromTimestamp($timestamp) : now();
+
             EmailLog::where('mailgun_message_id', $messageId)
                 ->where('recipient', $recipient)
-                ->where('status', '!=', 'sent')
+                ->whereNotIn('status', ['queued', 'cancelled', 'delivered'])
                 ->update([
-                    'status' => 'sent',
+                    'status' => 'delivered',
+                    'delivered_at' => $deliveredAt,
                     'bounce_type' => null,
                     'bounce_reason' => null,
                     'bounced_at' => null,

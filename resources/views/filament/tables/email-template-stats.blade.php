@@ -5,7 +5,7 @@
 
     $detailedStats = \JanDev\EmailSystem\Models\EmailLog::where('email_template_id', $record->id)
         ->selectRaw("
-            SUM(CASE WHEN status IN ('sent','spooled') THEN 1 ELSE 0 END) as sent_count,
+            SUM(CASE WHEN status IN ('sent','spooled','delivered') THEN 1 ELSE 0 END) as sent_count,
             SUM(CASE WHEN status = 'queued' THEN 1 ELSE 0 END) as queued_count,
             SUM(clicked) as clicked_count
         ")
