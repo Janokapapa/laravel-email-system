@@ -25,6 +25,8 @@ class SendQueuedEmails implements ShouldQueue
 {
     use InteractsWithQueue, Queueable, SerializesModels;
 
+    public $timeout = 600;
+
     public function handle()
     {
         $startTime = microtime(true);
@@ -40,7 +42,7 @@ class SendQueuedEmails implements ShouldQueue
 
         // Only process 'queued' emails — 'spooled' (PMTA) are handled by PmtaSync command
         $query = EmailLog::where('status', 'queued')
-            ->where('created_at', '>=', now()->subDay());
+            ->where('created_at', '>=', now()->subDays(3));
 
         if (!empty($pausedCampaignIds)) {
             $query->where(function ($q) use ($pausedCampaignIds) {
@@ -70,7 +72,7 @@ class SendQueuedEmails implements ShouldQueue
 
         // Get or create a send tracker for this run
         $totalQueued = EmailLog::where('status', 'queued')
-            ->where('created_at', '>=', now()->subDay())
+            ->where('created_at', '>=', now()->subDays(3))
             ->count();
 
         $tracker = JobTracker::where('type', 'email_send')
@@ -121,6 +123,18 @@ class SendQueuedEmails implements ShouldQueue
                 continue;
             }
 
+            // Validate email format before attempting send
+            if (!filter_var($email->recipient, FILTER_VALIDATE_EMAIL)) {
+                $email->update([
+                    'status' => 'failed',
+                    'error' => 'Invalid email address format',
+                ]);
+                $totalFailed++;
+                $tracker->incrementFailed();
+                $tracker->incrementProgress();
+                continue; // Skip delay for invalid emails
+            }
+
             try {
                 $senderConfig = $email->sender_name ? SenderResolver::get($email->sender_name) : null;
                 $this->sendSingleViaSmtp($email, $senderConfig);
@@ -130,7 +144,12 @@ class SendQueuedEmails implements ShouldQueue
                 $totalFailed++;
                 $tracker->incrementFailed();
                 $tracker->incrementProgress();
+                $email->update([
+                    'status' => 'failed',
+                    'error' => substr($e->getMessage(), 0, 200),
+                ]);
                 Log::channel('queue')->error("SMTP send failed for {$email->recipient}: " . $e->getMessage());
+                continue; // Skip delay for failed emails
             }
 
             if ($delaySeconds > 0) {
@@ -152,7 +171,7 @@ class SendQueuedEmails implements ShouldQueue
 
         // Mark old queued emails as skipped
         EmailLog::where('status', 'queued')
-            ->where('created_at', '<', now()->subDay())
+            ->where('created_at', '<', now()->subDays(3))
             ->update(['status' => 'skipped', 'error' => 'Email too old to process']);
 
         $tracker->flush();
