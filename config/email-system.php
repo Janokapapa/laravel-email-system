@@ -79,6 +79,7 @@ return [
         'delay_seconds' => 1,
         'mailgun_batch_size' => 500,
         'mailgun_batch_delay_ms' => 2000,
+        'queue' => 'default',
     ],
 
     /*

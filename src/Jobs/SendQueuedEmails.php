@@ -27,6 +27,11 @@ class SendQueuedEmails implements ShouldQueue
 
     public $timeout = 600;
 
+    public function __construct()
+    {
+        $this->onQueue(config('email-system.send.queue', 'default'));
+    }
+
     public function handle()
     {
         $startTime = microtime(true);
