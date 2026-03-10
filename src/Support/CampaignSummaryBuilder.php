@@ -2,7 +2,9 @@
 
 namespace JanDev\EmailSystem\Support;
 
+use JanDev\EmailSystem\Models\AudienceUser;
 use JanDev\EmailSystem\Models\EmailAudienceGroup;
+use JanDev\EmailSystem\Support\CampaignFilterBuilder;
 use Filament\Schemas\Components\Utilities\Get;
 use Illuminate\Support\HtmlString;
 
@@ -19,6 +21,7 @@ class CampaignSummaryBuilder
         $contentType = $get('content_type') ?: 'html';
         $groupIds = $get('audience_group_ids') ?? [];
         $skipProviders = $get('skip_providers') ?? [];
+        $customFieldFilters = $get('custom_field_filters') ?? [];
         $variations = $get('variations') ?? [];
 
         $providerLabels = ['yahoo' => 'Yahoo', 'microsoft' => 'Microsoft', 'gmail' => 'Gmail', 'icloud' => 'iCloud'];
@@ -26,13 +29,17 @@ class CampaignSummaryBuilder
 
         $totalRecipients = 0;
         $listHtml = '';
+        $activeFilters = array_filter($customFieldFilters, fn ($v) => $v !== null && $v !== '' && $v !== []);
+        $groups = !empty($groupIds) ? EmailAudienceGroup::whereIn('id', $groupIds)->get()->keyBy('id') : collect();
         foreach ($groupIds as $id) {
-            $group = EmailAudienceGroup::find($id);
+            $group = $groups->get($id);
             if (!$group) {
                 $listHtml .= '<div class="cs-list-deleted">⚠ ' . __('Deleted list') . '</div>';
                 continue;
             }
-            $active = $group->audienceUsers()->where('is_active', true)->where('bounced', false)->count();
+            $query = $group->audienceUsers()->where('is_active', true)->where('bounced', false);
+            CampaignFilterBuilder::applyFilters($query, $customFieldFilters);
+            $active = $query->count();
             $totalRecipients += $active;
             $listHtml .= '<div class="cs-list-item">'
                 . '<span class="cs-list-item-name">' . e($group->name) . '</span>'
@@ -132,6 +139,26 @@ class CampaignSummaryBuilder
         if ($skippedNames) {
             $html .= '<div class="cs-row"><span class="cs-label">' . __('Skip') . '</span><span class="cs-value">'
                 . '<span class="cs-badge cs-badge-yellow">' . e($skippedNames) . '</span></span></div>';
+        }
+        if (!empty($activeFilters)) {
+            $fieldDefs = collect(AudienceUser::getCustomFieldDefinitions())->keyBy('slug');
+            $filterBadges = '';
+            foreach ($activeFilters as $slug => $value) {
+                $fieldName = $fieldDefs->get($slug)['name'] ?? $slug;
+                if (is_array($value)) {
+                    $displayValue = e(implode(', ', $value));
+                } else {
+                    $displayValue = match ($value) {
+                        'true'  => __('Yes'),
+                        'false' => __('No'),
+                        default => e((string) $value),
+                    };
+                }
+                $filterBadges .= '<span class="cs-badge cs-badge-blue">'
+                    . e($fieldName) . ': ' . $displayValue
+                    . '</span>';
+            }
+            $html .= '<div class="cs-row"><span class="cs-label">' . __('Filters') . '</span><span class="cs-value" style="display:flex;flex-wrap:wrap;gap:4px;align-items:center;">' . $filterBadges . '</span></div>';
         }
         if (count($variations) > 0) {
             $varCount = count(array_filter($variations, fn ($v) => !empty($v['subject'] ?? '')));

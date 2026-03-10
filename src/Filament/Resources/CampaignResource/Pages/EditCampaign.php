@@ -10,6 +10,7 @@ use JanDev\EmailSystem\Models\Campaign;
 use JanDev\EmailSystem\Models\EmailAudienceGroup;
 use JanDev\EmailSystem\Models\EmailLog;
 use JanDev\EmailSystem\Models\EmailTemplate;
+use JanDev\EmailSystem\Support\CampaignFilterBuilder;
 use JanDev\EmailSystem\Support\SenderResolver;
 use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
@@ -65,6 +66,7 @@ class EditCampaign extends EditRecord
                 ->modalHeading(__('Send Campaign'))
                 ->modalDescription(function (): string {
                     $groupIds = $this->record->audience_group_ids ?? [];
+                    $filters = $this->record->custom_field_filters ?? [];
                     $groups = EmailAudienceGroup::whereIn('id', $groupIds)->get();
                     $total = 0;
                     $unverified = 0;
@@ -73,6 +75,7 @@ class EditCampaign extends EditRecord
                         $base = $group->audienceUsers()
                             ->where('is_active', true)
                             ->where('bounced', false);
+                        CampaignFilterBuilder::applyFilters($base, $filters);
                         $total += (clone $base)->count();
                         $unverified += (clone $base)->where(function ($q) {
                             $q->whereNull('zerobounce_status')->orWhere('zerobounce_status', 'unverified');
@@ -110,7 +113,9 @@ class EditCampaign extends EditRecord
 
     protected function dispatchCampaign(): void
     {
-        $groupIds = $this->record->fresh()->audience_group_ids ?? [];
+        $fresh = $this->record->fresh();
+        $groupIds = $fresh->audience_group_ids ?? [];
+        $filters = $fresh->custom_field_filters ?? [];
 
         // Load all groups in a single query
         $groups = EmailAudienceGroup::whereIn('id', $groupIds)->get()->keyBy('id');
@@ -127,13 +132,14 @@ class EditCampaign extends EditRecord
             return;
         }
 
-        // Calculate total recipients
+        // Calculate total recipients with custom field filters applied
         $total = 0;
         foreach ($groups as $group) {
-            $total += $group->audienceUsers()
+            $query = $group->audienceUsers()
                 ->where('is_active', true)
-                ->where('bounced', false)
-                ->count();
+                ->where('bounced', false);
+            CampaignFilterBuilder::applyFilters($query, $filters);
+            $total += $query->count();
         }
 
         $this->record->update([
@@ -221,7 +227,8 @@ class EditCampaign extends EditRecord
                         })
                         ->required()
                         ->multiple()
-                        ->searchable(),
+                        ->searchable()
+                        ->live(),
 
                     CheckboxList::make('skip_providers')
                         ->label(__('Skip Providers'))
@@ -234,6 +241,21 @@ class EditCampaign extends EditRecord
                         ])
                         ->default([])
                         ->columns(2),
+
+                    Section::make(__('Audience Filters'))
+                        ->description(__('Filter recipients by custom field values. Leave blank to include all.'))
+                        ->schema([
+                            ...CampaignFilterBuilder::filterSchema(),
+                            Placeholder::make('recipient_count')
+                                ->label(__('Filtered Recipients'))
+                                ->content(fn (Get $get): HtmlString => CampaignFilterBuilder::buildCountHtml(
+                                    (array) ($get('audience_group_ids') ?? []),
+                                    (array) ($get('custom_field_filters') ?? []),
+                                ))
+                                ->columnSpanFull(),
+                        ])
+                        ->columns(3)
+                        ->hidden(fn (): bool => empty(CampaignFilterBuilder::filterSchema())),
                 ])
                 ->afterValidation(function () {
                     $this->saveStepData();
@@ -384,8 +406,9 @@ class EditCampaign extends EditRecord
                 'sender_address'      => $data['sender_address'] ?? $this->record->sender_address,
                 'sender_display_name' => $data['sender_display_name'] ?? $this->record->sender_display_name,
                 'reply_to'            => $data['reply_to'] ?? $this->record->reply_to,
-                'audience_group_ids'  => $data['audience_group_ids'] ?? $this->record->audience_group_ids,
-                'skip_providers'      => $data['skip_providers'] ?? $this->record->skip_providers,
+                'audience_group_ids'    => $data['audience_group_ids'] ?? $this->record->audience_group_ids,
+                'custom_field_filters' => $data['custom_field_filters'] ?? $this->record->custom_field_filters,
+                'skip_providers'       => $data['skip_providers'] ?? $this->record->skip_providers,
                 'email_template_id'   => $data['email_template_id'] ?? $this->record->email_template_id,
                 'content_type'        => $data['content_type'] ?? $this->record->content_type,
                 'subject'             => $data['subject'] ?? $this->record->subject,
@@ -408,12 +431,10 @@ class EditCampaign extends EditRecord
     {
         return __('Save Campaign');
     }
-
     protected function getSavedNotificationTitle(): ?string
     {
         return __('Campaign saved');
     }
-
     protected function getRedirectUrl(): string
     {
         return $this->getResource()::getUrl('edit', ['record' => $this->record]);

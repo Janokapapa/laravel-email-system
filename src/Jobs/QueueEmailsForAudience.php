@@ -40,6 +40,7 @@ class QueueEmailsForAudience implements ShouldQueue
     protected ?string $senderDisplayName = null;
     protected ?string $replyTo = null;
     protected string $contentType = 'html';
+    protected array $customFieldFilters = [];
 
     public function __construct(
         ?int $templateId,
@@ -55,6 +56,7 @@ class QueueEmailsForAudience implements ShouldQueue
         string $contentType = 'html',
         ?string $senderDisplayName = null,
         ?string $replyTo = null,
+        array $customFieldFilters = [],
     ) {
         $this->templateId = $templateId;
         $this->audienceGroupId = $audienceGroupId;
@@ -69,6 +71,7 @@ class QueueEmailsForAudience implements ShouldQueue
         $this->contentType = $contentType;
         $this->senderDisplayName = $senderDisplayName;
         $this->replyTo = $replyTo;
+        $this->customFieldFilters = $customFieldFilters;
     }
 
     public function handle(): void
@@ -85,10 +88,12 @@ class QueueEmailsForAudience implements ShouldQueue
 
         Log::channel('queue')->info("QueueEmailsForAudience: Starting for {$label}");
 
-        $totalUsers = $audienceGroup->audienceUsers()
-            ->where('is_active', true)
-            ->where('bounced', false)
-            ->count();
+        $totalUsers = \JanDev\EmailSystem\Support\CampaignFilterBuilder::applyFilters(
+            $audienceGroup->audienceUsers()
+                ->where('is_active', true)
+                ->where('bounced', false),
+            $this->customFieldFilters
+        )->count();
 
         $trackerMeta = [
             'template_id' => $this->templateId,
@@ -206,10 +211,12 @@ class QueueEmailsForAudience implements ShouldQueue
         $alreadySentSkippedCount = 0;
 
         // Process in chunks to avoid memory issues
-        $audienceGroup->audienceUsers()
-            ->where('is_active', true)
-            ->where('bounced', false)
-            ->chunkById(1000, function ($users) use (
+        \JanDev\EmailSystem\Support\CampaignFilterBuilder::applyFilters(
+            $audienceGroup->audienceUsers()
+                ->where('is_active', true)
+                ->where('bounced', false),
+            $this->customFieldFilters
+        )->chunkById(1000, function ($users) use (
                 $template, $audienceGroup, $sender, $blockedEmails, $alreadySentEmails,
                 &$batchData, &$queuedCount, &$skippedCount, &$providerSkippedCount, &$alreadySentSkippedCount, $batchSize,
                 $initialStatus, $tracker, $contentPool, $contentType, $senderDisplayName, $replyTo

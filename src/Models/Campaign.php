@@ -23,6 +23,7 @@ class Campaign extends Model
         'body',
         'variations',
         'audience_group_ids',
+        'custom_field_filters',
         'skip_providers',
         'total_recipients',
         'sent_count',
@@ -35,6 +36,7 @@ class Campaign extends Model
     protected $casts = [
         'variations' => 'array',
         'audience_group_ids' => 'array',
+        'custom_field_filters' => 'array',
         'skip_providers' => 'array',
         'total_recipients' => 'integer',
         'sent_count' => 'integer',

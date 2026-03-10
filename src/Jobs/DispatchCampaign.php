@@ -64,6 +64,7 @@ class DispatchCampaign implements ShouldQueue
                     contentType:         $campaign->content_type ?? 'html',
                     senderDisplayName:   $campaign->sender_display_name,
                     replyTo:             $campaign->reply_to,
+                    customFieldFilters:  $campaign->custom_field_filters ?? [],
                 );
             } catch (\Throwable $e) {
                 Log::channel('queue')->error("DispatchCampaign: Group {$groupId} failed: " . $e->getMessage());

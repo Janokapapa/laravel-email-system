@@ -8,6 +8,7 @@ use JanDev\EmailSystem\Models\Campaign;
 use JanDev\EmailSystem\Models\EmailAudienceGroup;
 use JanDev\EmailSystem\Models\EmailLog;
 use JanDev\EmailSystem\Models\EmailTemplate;
+use JanDev\EmailSystem\Support\CampaignFilterBuilder;
 use JanDev\EmailSystem\Support\SenderResolver;
 use JanDev\EmailSystem\Jobs\SendQueuedEmail;
 use JanDev\EmailSystem\Jobs\DispatchCampaign;
@@ -37,7 +38,6 @@ class CreateCampaign extends CreateRecord
 
     // Holds the draft campaign ID if we saved mid-wizard
     public ?int $draftCampaignId = null;
-    protected int $draftStep = 1;
 
     public function mount(): void
     {
@@ -51,15 +51,15 @@ class CreateCampaign extends CreateRecord
 
         if ($draft) {
             $this->draftCampaignId = $draft->id;
-            $this->draftStep = max(1, (int) $draft->current_step);
 
             $this->form->fill([
                 'name'               => $draft->name,
                 'sender_name'        => $draft->sender_name,
                 'sender_display_name' => $draft->sender_display_name,
                 'sender_address'     => $draft->sender_address,
-                'audience_group_ids' => $draft->audience_group_ids ?? [],
-                'skip_providers'     => $draft->skip_providers ?? [],
+                'audience_group_ids'    => $draft->audience_group_ids ?? [],
+                'custom_field_filters' => $draft->custom_field_filters ?? [],
+                'skip_providers'       => $draft->skip_providers ?? [],
                 'email_template_id'  => $draft->email_template_id,
                 'content_type'       => $draft->content_type ?? 'html',
                 'subject'            => $draft->subject,
@@ -82,7 +82,21 @@ class CreateCampaign extends CreateRecord
 
     public function getStartStep(): int
     {
-        return $this->draftStep;
+        // Called before mount(), so read directly from request
+        $urlStep = (int) request()->query('step', 0);
+        if ($urlStep > 0) {
+            return $urlStep;
+        }
+
+        $draftId = request()->query('draft');
+        if ($draftId) {
+            $draft = Campaign::where('id', $draftId)->where('status', 'new')->value('current_step');
+            if ($draft) {
+                return max(1, (int) $draft);
+            }
+        }
+
+        return 1;
     }
 
     public function getTitle(): string
@@ -171,7 +185,8 @@ class CreateCampaign extends CreateRecord
                         })
                         ->required()
                         ->multiple()
-                        ->searchable(),
+                        ->searchable()
+                        ->live(),
 
                     CheckboxList::make('skip_providers')
                         ->label(__('Skip Providers'))
@@ -184,6 +199,21 @@ class CreateCampaign extends CreateRecord
                         ])
                         ->default([])
                         ->columns(2),
+
+                    Section::make(__('Audience Filters'))
+                        ->description(__('Filter recipients by custom field values. Leave blank to include all.'))
+                        ->schema([
+                            ...CampaignFilterBuilder::filterSchema(),
+                            Placeholder::make('recipient_count')
+                                ->label(__('Filtered Recipients'))
+                                ->content(fn (Get $get): HtmlString => CampaignFilterBuilder::buildCountHtml(
+                                    (array) ($get('audience_group_ids') ?? []),
+                                    (array) ($get('custom_field_filters') ?? []),
+                                ))
+                                ->columnSpanFull(),
+                        ])
+                        ->columns(3)
+                        ->hidden(fn (): bool => empty(CampaignFilterBuilder::filterSchema())),
                 ])
                 ->afterValidation(function () {
                     $this->saveStepDraft(2);
@@ -344,8 +374,9 @@ class CreateCampaign extends CreateRecord
                 'subject'            => $data['subject'] ?? null,
                 'body'               => $data['body'] ?? null,
                 'variations'         => $data['variations'] ?? [],
-                'audience_group_ids' => $data['audience_group_ids'] ?? [],
-                'skip_providers'     => $data['skip_providers'] ?? [],
+                'audience_group_ids'    => $data['audience_group_ids'] ?? [],
+                'custom_field_filters' => $data['custom_field_filters'] ?? [],
+                'skip_providers'       => $data['skip_providers'] ?? [],
                 'current_step'       => $step,
             ];
 
@@ -356,7 +387,15 @@ class CreateCampaign extends CreateRecord
                 $this->draftCampaignId = $campaign->id;
             }
 
-            // Draft saved — user can resume from campaign list if they navigate away
+            // Update URL with draft ID and next step (user is moving to step+1 after validation)
+            $draftId = $this->draftCampaignId;
+            $nextStep = $step + 1;
+            $this->js("
+                const url = new URL(window.location.href);
+                url.searchParams.set('draft', '{$draftId}');
+                url.searchParams.set('step', '{$nextStep}');
+                history.replaceState(null, document.title, url.toString());
+            ");
         } catch (\Throwable $e) {
             // Non-fatal — wizard continues even if draft save fails
             \Illuminate\Support\Facades\Log::warning('Campaign draft save failed: ' . $e->getMessage());
