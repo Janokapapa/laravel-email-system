@@ -39,10 +39,14 @@ return new class extends Migration
             }
         }
 
+        // MariaDB uses JSON_VALUE syntax, not CAST(x AS JSON)
+        $jsonTrue  = DB::getDriverName() === 'mysql' ? "CAST('true' AS JSON)" : "'true'";
+        $jsonFalse = DB::getDriverName() === 'mysql' ? "CAST('false' AS JSON)" : "'false'";
+
         // ── 1. Set depositor = true on mrjonescasino depositors (id=162) ────
         DB::statement(
             "UPDATE audience_users
-             SET custom_fields = JSON_SET(COALESCE(custom_fields, '{}'), '$.depositor', CAST('true' AS JSON))
+             SET custom_fields = JSON_SET(COALESCE(custom_fields, '{}'), '$.depositor', {$jsonTrue})
              WHERE email_audience_group_id = 162"
         );
 
@@ -51,7 +55,7 @@ return new class extends Migration
         if ($group164) {
             DB::statement(
                 "UPDATE audience_users
-                 SET custom_fields = JSON_SET(COALESCE(custom_fields, '{}'), '$.depositor', CAST('false' AS JSON))
+                 SET custom_fields = JSON_SET(COALESCE(custom_fields, '{}'), '$.depositor', {$jsonFalse})
                  WHERE email_audience_group_id = 164"
             );
 
@@ -75,7 +79,7 @@ return new class extends Migration
         $depositorIds = implode(',', self::DEPOSITOR_IDS);
         DB::statement(
             "UPDATE audience_users
-             SET custom_fields = JSON_SET(COALESCE(custom_fields, '{}'), '$.depositor', CAST('true' AS JSON))
+             SET custom_fields = JSON_SET(COALESCE(custom_fields, '{}'), '$.depositor', {$jsonTrue})
              WHERE email_audience_group_id IN ({$depositorIds})"
         );
     }
