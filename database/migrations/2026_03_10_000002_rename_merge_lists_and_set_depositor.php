@@ -39,9 +39,10 @@ return new class extends Migration
             }
         }
 
-        // MariaDB uses JSON_VALUE syntax, not CAST(x AS JSON)
-        $jsonTrue  = DB::getDriverName() === 'mysql' ? "CAST('true' AS JSON)" : "'true'";
-        $jsonFalse = DB::getDriverName() === 'mysql' ? "CAST('false' AS JSON)" : "'false'";
+        // Use string values — works on both MySQL and MariaDB
+        // Values are stored as JSON strings ("true"/"false") matching SyncCasinoAudience format
+        $jsonTrue  = "'true'";
+        $jsonFalse = "'false'";
 
         // ── 1. Set depositor = true on mrjonescasino depositors (id=162) ────
         DB::statement(
