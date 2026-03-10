@@ -93,8 +93,28 @@ class EmailAudienceGroupResource extends Resource
                     ->label(__('Unverified'))
                     ->getStateUsing(fn ($record) => $record->zb_unverified_count)
                     ->color(fn ($state) => $state > 0 ? 'warning' : null),
+                ...static::getExtraColumns(),
             ])
             ->filters([]);
+    }
+
+    /**
+     * Returns extra table columns from the host app's hook.
+     * Configured via email-system.filament.audience_group_extra_columns (invokable class).
+     */
+    protected static function getExtraColumns(): array
+    {
+        $class = config('email-system.filament.audience_group_extra_columns');
+        if (!$class || !class_exists($class)) {
+            return [];
+        }
+
+        try {
+            return (array) app($class)();
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('EmailAudienceGroupResource extra columns hook failed: ' . $e->getMessage());
+            return [];
+        }
     }
 
     public static function getRelations(): array

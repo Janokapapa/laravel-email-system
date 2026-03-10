@@ -9,6 +9,7 @@ use JanDev\EmailSystem\Models\EmailAudienceGroup;
 use JanDev\EmailSystem\Models\EmailLog;
 use JanDev\EmailSystem\Models\EmailTemplate;
 use JanDev\EmailSystem\Support\CampaignFilterBuilder;
+use JanDev\EmailSystem\Support\CampaignSummaryBuilder;
 use JanDev\EmailSystem\Support\SenderResolver;
 use JanDev\EmailSystem\Jobs\SendQueuedEmail;
 use JanDev\EmailSystem\Jobs\DispatchCampaign;
@@ -187,6 +188,17 @@ class CreateCampaign extends CreateRecord
                         ->multiple()
                         ->searchable()
                         ->live(),
+
+                    Placeholder::make('sender_list_warning')
+                        ->label('')
+                        ->content(function (Get $get): HtmlString {
+                            $warning = static::resolveSenderWarning(
+                                $get('sender_name'),
+                                (array) ($get('audience_group_ids') ?? [])
+                            );
+                            return new HtmlString($warning ?? '');
+                        })
+                        ->columnSpanFull(),
 
                     CheckboxList::make('skip_providers')
                         ->label(__('Skip Providers'))
@@ -505,5 +517,15 @@ class CreateCampaign extends CreateRecord
                 ->danger()
                 ->send();
         }
+    }
+
+    /**
+     * Invoke the sender/list mismatch warning hook from config.
+     * Configured via email-system.filament.campaign_sender_warnings (invokable class).
+     * Returns HTML warning string or null.
+     */
+    public static function resolveSenderWarning(?string $senderName, array $audienceGroupIds): ?string
+    {
+        return CampaignSummaryBuilder::resolveSenderWarning($senderName, $audienceGroupIds);
     }
 }

@@ -98,6 +98,21 @@ class EditCampaign extends EditRecord
                         ]);
                     }
 
+                    // Sender/list mismatch warning (plain text for modal dialog)
+                    $warningClass = config('email-system.filament.campaign_sender_warnings');
+                    if ($warningClass && class_exists($warningClass)) {
+                        try {
+                            $warningHtml = app($warningClass)($this->record->sender_name, $groupIds);
+                            if ($warningHtml) {
+                                // Strip HTML tags for plain-text modal description
+                                $warningText = strip_tags($warningHtml);
+                                $msg .= "\n\n⚠️ " . trim($warningText);
+                            }
+                        } catch (\Throwable $e) {
+                            \Illuminate\Support\Facades\Log::error('EditCampaign sender warning hook failed: ' . $e->getMessage());
+                        }
+                    }
+
                     $msg .= "\n\n" . __('Continue?');
                     return $msg;
                 })

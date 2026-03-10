@@ -116,6 +116,12 @@ class CampaignSummaryBuilder
 
         $html = $css . '<div class="cs-wrap">';
 
+        // ── Sender/List Mismatch Warning (from hook) ──
+        $warningHtml = static::resolveSenderWarning($get('sender_name'), (array) ($get('audience_group_ids') ?? []));
+        if ($warningHtml) {
+            $html .= $warningHtml;
+        }
+
         // ── Info Card ──
         $html .= '<div class="cs-card">';
         $html .= '<div class="cs-header">';
@@ -242,5 +248,25 @@ class CampaignSummaryBuilder
         $html .= '</div>';
 
         return new HtmlString($html);
+    }
+
+    /**
+     * Invoke the sender/list mismatch warning hook from config.
+     * Configured via email-system.filament.campaign_sender_warnings (invokable class).
+     * Returns HTML warning string or null.
+     */
+    public static function resolveSenderWarning(?string $senderName, array $audienceGroupIds): ?string
+    {
+        $class = config('email-system.filament.campaign_sender_warnings');
+        if (!$class || !class_exists($class)) {
+            return null;
+        }
+
+        try {
+            return app($class)($senderName, $audienceGroupIds) ?: null;
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('CampaignSummaryBuilder sender warning hook failed: ' . $e->getMessage());
+            return null;
+        }
     }
 }

@@ -101,6 +101,16 @@ return [
     'filament' => [
         'navigation_group' => 'Marketing',
         'navigation_icon' => 'heroicon-o-envelope',
+
+        // Invokable class that returns an array of extra Filament table columns
+        // for the EmailAudienceGroupResource list. Signature: __invoke(): array
+        // Example: \App\Filament\Hooks\CasinoAudienceColumns::class
+        'audience_group_extra_columns' => null,
+
+        // Invokable class for sender/list mismatch warnings in the campaign wizard.
+        // Signature: __invoke(?string $senderName, array $audienceGroupIds): ?string
+        // Return HTML string (for Placeholder/Summary) or null (no warning).
+        'campaign_sender_warnings' => null,
     ],
 
     /*
