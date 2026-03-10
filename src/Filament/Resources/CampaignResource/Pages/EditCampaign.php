@@ -457,11 +457,27 @@ class EditCampaign extends EditRecord
         $senderConfig  = $senderName ? SenderResolver::get($senderName) : null;
         $senderAddress = $state['sender_address'] ?? ($senderConfig['from_address'] ?? config('email-system.from.address'));
 
+        // Resolve placeholders with test data
+        $subject = $state['subject'] ?? 'Campaign Preview';
+        $body = $state['body'] ?? '';
+        $placeholders = [
+            '{{name}}'  => 'Test Name',
+            '{{email}}' => $testEmail,
+        ];
+        foreach (AudienceUser::getCustomFieldDefinitions() as $field) {
+            $slug = $field['slug'] ?? null;
+            if ($slug && preg_match('/^[a-zA-Z0-9_]+$/', $slug)) {
+                $placeholders['{{' . $slug . '}}'] = 'Test ' . ($field['name'] ?? $slug);
+            }
+        }
+        $subject = str_replace(array_keys($placeholders), array_values($placeholders), $subject);
+        $body = str_replace(array_keys($placeholders), array_values($placeholders), $body);
+
         $emailLog = EmailLog::create([
             'campaign_id'          => $this->record->id,
             'recipient'            => $testEmail,
-            'subject'              => '[TEST] ' . ($state['subject'] ?? 'Campaign Preview'),
-            'message'              => $state['body'] ?? '',
+            'subject'              => '[TEST] ' . $subject,
+            'message'              => $body,
             'sender'               => $senderAddress,
             'sender_name'          => $senderName,
             'sender_display_name'  => $state['sender_display_name'] ?? ($senderConfig['from_name'] ?? null),

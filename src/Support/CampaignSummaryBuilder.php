@@ -180,9 +180,32 @@ class CampaignSummaryBuilder
             $html .= '<span class="cs-header-title">' . __('Recipients') . '</span>';
             $html .= '</div>';
             $html .= '<div class="cs-body"><div class="cs-lists">' . $listHtml . '</div>';
+            if (!empty($activeFilters)) {
+                $fieldDefs = $fieldDefs ?? collect(AudienceUser::getCustomFieldDefinitions())->keyBy('slug');
+                $recipientFilterBadges = '';
+                foreach ($activeFilters as $slug => $value) {
+                    $fieldName = $fieldDefs->get($slug)['name'] ?? $slug;
+                    if (is_array($value)) {
+                        $displayValue = e(implode(', ', $value));
+                    } else {
+                        $displayValue = match ($value) {
+                            'true'  => __('Yes'),
+                            'false' => __('No'),
+                            default => e((string) $value),
+                        };
+                    }
+                    $recipientFilterBadges .= '<span class="cs-badge cs-badge-blue" style="margin:2px 0;">'
+                        . e($fieldName) . ': ' . $displayValue
+                        . '</span> ';
+                }
+                $html .= '<div style="display:flex;flex-wrap:wrap;gap:4px;align-items:center;padding:8px 0;border-bottom:1px solid rgba(0,0,0,.04);">'
+                    . '<span class="cs-label" style="width:auto;margin-right:4px;">' . __('Filters') . ':</span>'
+                    . $recipientFilterBadges
+                    . '</div>';
+            }
             $html .= '<div class="cs-total">';
             $html .= '<span class="cs-total-num">' . number_format($totalRecipients) . '</span>';
-            $html .= '<span class="cs-total-label">' . __('total recipients') . '</span>';
+            $html .= '<span class="cs-total-label">' . __('total recipients') . ($activeFilters ? ' (' . __('filtered') . ')' : '') . '</span>';
             $html .= '</div>';
             $html .= '</div></div>';
         }
