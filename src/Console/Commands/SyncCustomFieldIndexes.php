@@ -40,7 +40,7 @@ class SyncCustomFieldIndexes extends Command
             if (!Schema::hasColumn('audience_users', $colName)) {
                 $this->line("  Adding column: {$colName}");
                 DB::statement(
-                    "ALTER TABLE audience_users ADD COLUMN `{$colName}` VARCHAR(500) GENERATED ALWAYS AS (`custom_fields`->>'\\$.{$slug}') VIRTUAL"
+                    "ALTER TABLE audience_users ADD COLUMN `{$colName}` VARCHAR(500) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(`custom_fields`, '$.{$slug}'))) VIRTUAL"
                 );
                 DB::statement("CREATE INDEX `{$idxName}` ON audience_users (`{$colName}`)");
                 $this->info("  + Created column and index for: {$slug}");
