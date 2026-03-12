@@ -25,13 +25,6 @@ class PmtaStatisticsPage extends Page
         return config('email-system.filament.navigation_group', 'Marketing');
     }
 
-    public static function canAccess(): bool
-    {
-        $permission = config('email-system.permission', 'manage marketing');
-
-        return auth()->user()?->can($permission) ?? false;
-    }
-
     public int $selectedPeriod = 7;
 
     public function setPeriod(int $days): void
