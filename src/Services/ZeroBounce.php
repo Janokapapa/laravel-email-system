@@ -144,8 +144,8 @@ class ZeroBounce
             'valid'                                      => self::STATUS_VALID,
             'catch-all'                                  => self::STATUS_CATCH_ALL,
             'unknown'                                    => self::STATUS_UNKNOWN,
-            'abuse'                                       => self::STATUS_CATCH_ALL,
-            'invalid', 'spamtrap', 'do_not_mail'          => self::STATUS_INVALID,
+            'abuse'                                          => self::STATUS_VALID,
+            'invalid', 'spamtrap', 'do_not_mail'              => self::STATUS_INVALID,
             default                                      => self::STATUS_UNVERIFIED,
         };
     }
