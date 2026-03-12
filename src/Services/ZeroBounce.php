@@ -3,7 +3,11 @@
 namespace JanDev\EmailSystem\Services;
 
 use GuzzleHttp\Client;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use JanDev\EmailSystem\Models\AudienceUser;
+use JanDev\EmailSystem\Support\CampaignFilterBuilder;
 
 /**
  * ZeroBounce Email Validation Service
@@ -14,8 +18,9 @@ use Illuminate\Support\Facades\Log;
  * Status mapping:
  * - valid      → valid (deliverable)
  * - catch-all  → catch_all (accepts all emails)
+ * - abuse      → catch_all (treated as sendable; stored with sub_status='abuse')
  * - unknown    → unknown (couldn't determine)
- * - invalid, spamtrap, abuse, do_not_mail → invalid (do not send)
+ * - invalid, spamtrap, do_not_mail → invalid (do not send)
  * - everything else → unverified
  */
 class ZeroBounce
@@ -139,9 +144,102 @@ class ZeroBounce
             'valid'                                      => self::STATUS_VALID,
             'catch-all'                                  => self::STATUS_CATCH_ALL,
             'unknown'                                    => self::STATUS_UNKNOWN,
-            'invalid', 'spamtrap', 'abuse', 'do_not_mail' => self::STATUS_INVALID,
+            'abuse'                                       => self::STATUS_CATCH_ALL,
+            'invalid', 'spamtrap', 'do_not_mail'          => self::STATUS_INVALID,
             default                                      => self::STATUS_UNVERIFIED,
         };
+    }
+
+    /**
+     * Verify all unverified emails in an audience group via the ZeroBounce API.
+     *
+     * Steps performed:
+     *  1. Normalize any NULL zerobounce_status rows to 'unverified' so the existing
+     *     query (WHERE zerobounce_status = 'unverified') picks them up.
+     *  2. Chunk through unverified, active, non-bounced users (with optional custom-
+     *     field filters) and call validate() on each email address.
+     *  3. Update zerobounce_status / sub_status / checked_at on success.
+     *  4. Abort after 10 consecutive API errors to handle API outages gracefully.
+     *
+     * @param  int           $groupId            Audience group to verify
+     * @param  array         $customFieldFilters  Campaign-level custom field filters
+     * @param  callable|null $validator           Injectable for testing (default: ZeroBounce::validate)
+     * @return array{verified: int, skipped: int, errors: int}
+     */
+    public static function verifyAudienceGroup(
+        int $groupId,
+        array $customFieldFilters = [],
+        ?callable $validator = null,
+    ): array {
+        $validate = $validator ?? fn (string $email) => self::validate($email);
+
+        // Normalize NULL statuses so the chunk query below picks them up
+        DB::table('audience_users')
+            ->where('email_audience_group_id', $groupId)
+            ->whereNull('zerobounce_status')
+            ->where('is_active', true)
+            ->where('bounced', false)
+            ->update(['zerobounce_status' => self::STATUS_UNVERIFIED]);
+
+        $verified          = 0;
+        $skipped           = 0;
+        $errors            = 0;
+        $consecutiveErrors = 0;
+        $aborted           = false;
+
+        $query = AudienceUser::where('email_audience_group_id', $groupId)
+            ->where('zerobounce_status', self::STATUS_UNVERIFIED)
+            ->where('is_active', true)
+            ->where('bounced', false);
+
+        CampaignFilterBuilder::applyFilters($query, $customFieldFilters);
+
+        $query->chunkById(100, function ($users) use (
+            &$verified, &$skipped, &$errors, &$consecutiveErrors, &$aborted,
+            $groupId, $validate
+        ) {
+            if ($aborted) {
+                return false;
+            }
+
+            foreach ($users as $user) {
+                $result = $validate($user->email);
+
+                if ($result === null) {
+                    $errors++;
+                    $consecutiveErrors++;
+                    $skipped++;
+
+                    if ($consecutiveErrors >= 10) {
+                        Log::channel('queue')->error(
+                            "ZeroBounce::verifyAudienceGroup: Aborting — 10 consecutive API failures. " .
+                            "GroupId={$groupId}"
+                        );
+                        $aborted = true;
+                        return false;
+                    }
+
+                    continue;
+                }
+
+                $consecutiveErrors = 0;
+
+                $user->update([
+                    'zerobounce_status'     => $result['status'],
+                    'zerobounce_sub_status' => $result['sub_status'],
+                    'zerobounce_checked_at' => Carbon::now(),
+                ]);
+
+                $verified++;
+
+                $delayMs = config('email-system.zerobounce.delay_ms', 200);
+                if ($delayMs > 0) {
+                    usleep($delayMs * 1000);
+                }
+            }
+        });
+
+        return ['verified' => $verified, 'skipped' => $skipped, 'errors' => $errors];
     }
 
     /**

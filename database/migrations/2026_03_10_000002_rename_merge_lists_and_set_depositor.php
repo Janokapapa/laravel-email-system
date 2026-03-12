@@ -29,6 +29,11 @@ return new class extends Migration
 
     public function up(): void
     {
+        // In testing environments, the production group IDs don't exist — skip this migration.
+        if (app()->environment('testing')) {
+            return;
+        }
+
         // ── Safety assertions: verify groups exist by ID ──────────────
         // Accept both old names ("X depositors") and already-renamed slugs
         $requiredIds = [156, 157, 158, 159, 160, 161, 162, 163, 165];

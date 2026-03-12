@@ -17,6 +17,11 @@ return new class extends Migration
 
     public function up(): void
     {
+        // In testing environments, the production group IDs don't exist — skip this migration.
+        if (app()->environment('testing')) {
+            return;
+        }
+
         foreach (self::RENAMES as $id => $names) {
             $group = DB::table('email_audience_groups')->where('id', $id)->first();
 

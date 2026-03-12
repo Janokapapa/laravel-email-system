@@ -2,8 +2,11 @@
 
 namespace JanDev\EmailSystem\Jobs;
 
+use JanDev\EmailSystem\Models\AudienceUser;
 use JanDev\EmailSystem\Models\Campaign;
 use JanDev\EmailSystem\Models\EmailAudienceGroup;
+use JanDev\EmailSystem\Services\ZeroBounce;
+use JanDev\EmailSystem\Support\CampaignFilterBuilder;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -20,9 +23,17 @@ class DispatchCampaign implements ShouldQueue
 
     protected Campaign $campaign;
 
-    public function __construct(Campaign $campaign)
+    /**
+     * Injectable ZeroBounce validator for testing.
+     * In production this is always null (real API used).
+     * Closures are not serializable — only pass in tests via dispatchSync / direct instantiation.
+     */
+    private readonly ?\Closure $zeroBounceValidator;
+
+    public function __construct(Campaign $campaign, ?\Closure $zeroBounceValidator = null)
     {
-        $this->campaign = $campaign;
+        $this->campaign            = $campaign;
+        $this->zeroBounceValidator = $zeroBounceValidator;
     }
 
     public function handle(): void
@@ -46,6 +57,31 @@ class DispatchCampaign implements ShouldQueue
             if (!$group) {
                 Log::channel('queue')->warning("DispatchCampaign: Group {$groupId} not found, skipping");
                 continue;
+            }
+
+            // ── ZeroBounce auto-verification ─────────────────────────────────
+            if (ZeroBounce::isEnabled()) {
+                $filters = $campaign->custom_field_filters ?? [];
+                $uncheckedQuery = AudienceUser::where('email_audience_group_id', $groupId)
+                    ->where('is_active', true)
+                    ->where('bounced', false)
+                    ->where(function ($q) {
+                        $q->whereNull('zerobounce_status')
+                          ->orWhere('zerobounce_status', ZeroBounce::STATUS_UNVERIFIED);
+                    });
+                CampaignFilterBuilder::applyFilters($uncheckedQuery, $filters);
+                $unchecked = $uncheckedQuery->count();
+
+                if ($unchecked > 0) {
+                    Log::channel('queue')->info(
+                        "DispatchCampaign: Verifying {$unchecked} unchecked emails in group {$groupId} before sending"
+                    );
+                    $stats = ZeroBounce::verifyAudienceGroup($groupId, $filters, $this->zeroBounceValidator);
+                    Log::channel('queue')->info(
+                        "DispatchCampaign: ZeroBounce done — " .
+                        "verified={$stats['verified']}, skipped={$stats['skipped']}, errors={$stats['errors']}"
+                    );
+                }
             }
 
             try {

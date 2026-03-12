@@ -10,8 +10,10 @@ use JanDev\EmailSystem\Models\Campaign;
 use JanDev\EmailSystem\Models\EmailAudienceGroup;
 use JanDev\EmailSystem\Models\EmailLog;
 use JanDev\EmailSystem\Models\EmailTemplate;
+use JanDev\EmailSystem\Services\ZeroBounce;
 use JanDev\EmailSystem\Support\CampaignFilterBuilder;
 use JanDev\EmailSystem\Support\SenderResolver;
+use Illuminate\Support\Facades\Cache;
 use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
 use Filament\Forms\Components\CheckboxList;
@@ -92,7 +94,21 @@ class EditCampaign extends EditRecord
                             'count' => number_format($invalid),
                         ]);
                     }
-                    if ($unverified > 0) {
+                    if ($unverified > 0 && ZeroBounce::isEnabled()) {
+                        $msg .= "\n" . __(':count unchecked emails will be verified by ZeroBounce before sending.', [
+                            'count' => number_format($unverified),
+                        ]);
+
+                        // Show credit balance (cached 5 seconds to avoid API spam)
+                        $sentinel = new \stdClass();
+                        $cached   = Cache::get('zerobounce_credits', $sentinel);
+                        if ($cached === $sentinel) {
+                            $cached = ZeroBounce::getCredits();
+                            Cache::put('zerobounce_credits', $cached, 5);
+                        }
+                        $creditsDisplay = $cached !== null ? number_format((int) $cached) : 'N/A';
+                        $msg .= "\n" . __('ZeroBounce credits available: :credits', ['credits' => $creditsDisplay]);
+                    } elseif ($unverified > 0) {
                         $msg .= "\n⚠️ " . __(':count emails are not yet verified by ZeroBounce.', [
                             'count' => number_format($unverified),
                         ]);
