@@ -20,6 +20,11 @@ class PmtaStatisticsPage extends Page
 
     protected string $view = 'email-system::filament.pages.pmta-statistics';
 
+    public static function getNavigationGroup(): ?string
+    {
+        return config('email-system.filament.navigation_group', 'Marketing');
+    }
+
     public static function canAccess(): bool
     {
         $permission = config('email-system.permission', 'manage marketing');

@@ -6,6 +6,8 @@ use Filament\Widgets\StatsOverviewWidget;
 use Filament\Widgets\StatsOverviewWidget\Stat;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Number;
+use JanDev\EmailSystem\Filament\Pages\PmtaServerDetailPage;
+use JanDev\EmailSystem\Filament\Pages\PmtaStatisticsPage;
 
 class PmtaStatsWidget extends StatsOverviewWidget
 {
@@ -42,9 +44,16 @@ class PmtaStatsWidget extends StatsOverviewWidget
             $totalDelivered += $delivered;
             $totalBounced += $bounced;
 
-            $stats[] = Stat::make($server, Number::format($delivered))
+            $stat = Stat::make($server, Number::format($delivered))
                 ->description("Bounced: {$bounced} · Rate: {$rate}%")
                 ->color($this->rateColor($rate));
+
+            $url = $this->getServerDetailUrl($server);
+            if ($url !== null) {
+                $stat->url($url);
+            }
+
+            $stats[] = $stat;
         }
 
         if (empty($stats)) {
@@ -55,11 +64,36 @@ class PmtaStatsWidget extends StatsOverviewWidget
         $totalAll = $totalDelivered + $totalBounced;
         $overallRate = $totalAll > 0 ? round($totalDelivered / $totalAll * 100, 1) : 0;
 
-        $stats[] = Stat::make('Overall', Number::format($totalDelivered))
+        $overallStat = Stat::make('Overall', Number::format($totalDelivered))
             ->description("Bounced: {$totalBounced} · Rate: {$overallRate}%")
             ->color($this->rateColor($overallRate));
 
+        $overviewUrl = $this->getOverviewUrl();
+        if ($overviewUrl !== null) {
+            $overallStat->url($overviewUrl);
+        }
+
+        $stats[] = $overallStat;
+
         return $stats;
+    }
+
+    protected function getServerDetailUrl(string $server): ?string
+    {
+        try {
+            return PmtaServerDetailPage::getUrl(['server' => $server]);
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    protected function getOverviewUrl(): ?string
+    {
+        try {
+            return PmtaStatisticsPage::getUrl();
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     private function rateColor(float $rate): string
