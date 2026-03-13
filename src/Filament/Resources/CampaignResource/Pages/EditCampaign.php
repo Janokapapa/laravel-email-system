@@ -201,20 +201,30 @@ class EditCampaign extends EditRecord
                         ->label(__('Campaign Name'))
                         ->required(),
 
+                    Placeholder::make('sender_data')
+                        ->hiddenLabel()
+                        ->content(function () {
+                            $configs = json_encode(
+                                collect(SenderResolver::all())->mapWithKeys(fn ($s) => [
+                                    $s['name'] => [
+                                        'n' => $s['from_name'] ?? '',
+                                        'a' => $s['from_address'] ?? '',
+                                        'r' => $s['reply_to'] ?? $s['from_address'] ?? '',
+                                    ],
+                                ])->toArray()
+                            );
+                            $js = "window.__sc=JSON.parse(\$el.dataset.sc);window.__fs=function(v){var s=window.__sc[v];if(!s)return;document.querySelectorAll('input').forEach(function(i){var d=i.id||'';if(d.includes('sender_display_name')){i.value=s.n;i.dispatchEvent(new Event('input',{bubbles:true}))}if(d.includes('sender_address')){i.value=s.a;i.dispatchEvent(new Event('input',{bubbles:true}))}if(d.includes('reply_to')){i.value=s.r;i.dispatchEvent(new Event('input',{bubbles:true}))}})}";
+
+                            return new HtmlString(
+                                '<div x-data x-init="' . htmlspecialchars($js, ENT_QUOTES, 'UTF-8') . '" data-sc="' . htmlspecialchars($configs, ENT_QUOTES, 'UTF-8') . '" style="display:none"></div>'
+                            );
+                        }),
+
                     Select::make('sender_name')
                         ->label(__('Sender'))
                         ->options(fn () => SenderResolver::options())
                         ->required()
-                        ->searchable()
-                        ->live()
-                        ->afterStateUpdated(function (Set $set, ?string $state) {
-                            if ($state) {
-                                $config = SenderResolver::get($state);
-                                $set('sender_display_name', $config['from_name'] ?? '');
-                                $set('sender_address', $config['from_address'] ?? '');
-                                $set('reply_to', $config['reply_to'] ?? $config['from_address'] ?? '');
-                            }
-                        }),
+                        ->extraAttributes(['x-on:change' => 'if(window.__fs)window.__fs($event.target.value)']),
 
                     TextInput::make('sender_display_name')
                         ->label(__('From Name'))
