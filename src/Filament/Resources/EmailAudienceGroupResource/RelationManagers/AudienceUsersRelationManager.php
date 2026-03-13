@@ -442,31 +442,37 @@ class AudienceUsersRelationManager extends RelationManager
                     $this->csvColumnOptions = $options;
 
                     // Auto-detect and pre-fill mapping selects
+                    // Track claimed column indices so no column is mapped twice
                     $headers = $detected['headers'];
+                    $claimedIndices = [];
+
                     $nameIdx = CsvHelper::autoDetectColumn($headers, [
                         'name', 'név', 'nev', 'username', 'user_name', 'full_name',
                         'fullname', 'teljes_nev', 'teljes_név', 'felhasználónév',
                         'first_name', 'keresztnév', 'contact_name', 'display_name',
-                    ]);
+                    ], $claimedIndices);
                     $emailIdx = CsvHelper::autoDetectColumn($headers, [
                         'email', 'e-mail', 'emailcim', 'email_cím', 'mail',
                         'email_address', 'emailaddress', 'e_mail', 'e_mail_cim',
                         'email_cim', 'user_email', 'contact_email',
-                    ]);
+                    ], $claimedIndices);
                     if ($nameIdx !== null) {
                         $set('map_name', $nameIdx);
+                        $claimedIndices[] = $nameIdx;
                     }
                     if ($emailIdx !== null) {
                         $set('map_email', $emailIdx);
+                        $claimedIndices[] = $emailIdx;
                     }
 
                     $zbIdx = CsvHelper::autoDetectColumn($headers, [
                         'zerobounce_status', 'zerobounce', 'zb_status', 'zb',
                         'zerobounce_statusz', 'bounce_status', 'email_status',
                         'verification_status', 'email_verification',
-                    ]);
+                    ], $claimedIndices);
                     if ($zbIdx !== null) {
                         $set('map_zerobounce_status', $zbIdx);
+                        $claimedIndices[] = $zbIdx;
                     }
 
                     $countryDetected = false;
@@ -481,9 +487,10 @@ class AudienceUsersRelationManager extends RelationManager
                         if ($defName) {
                             $aliases[] = $defName;
                         }
-                        $idx = CsvHelper::autoDetectColumn($headers, $aliases);
+                        $idx = CsvHelper::autoDetectColumn($headers, $aliases, $claimedIndices);
                         if ($idx !== null) {
                             $set('map_cf_' . $slug, $idx);
+                            $claimedIndices[] = $idx;
                             if ($slug === 'country') {
                                 $countryDetected = true;
                             }

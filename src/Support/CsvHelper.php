@@ -179,11 +179,13 @@ class CsvHelper
      * Auto-detect a column index from headers by matching aliases (case-insensitive).
      * Uses normalized matching: strips accents, replaces separators, then tries
      * exact match first, then contains match as fallback.
+     * Columns already claimed (in $excludeIndices) are skipped.
      *
      * @param  array<string> $headers
      * @param  array<string> $aliases
+     * @param  array<string> $excludeIndices  Column indices already mapped
      */
-    public static function autoDetectColumn(array $headers, array $aliases): ?string
+    public static function autoDetectColumn(array $headers, array $aliases, array $excludeIndices = []): ?string
     {
         $normalizedHeaders = [];
         foreach ($headers as $i => $header) {
@@ -194,6 +196,9 @@ class CsvHelper
 
         // Pass 1: exact match on normalized form
         foreach ($normalizedHeaders as $i => $nh) {
+            if (in_array((string) $i, $excludeIndices, true)) {
+                continue;
+            }
             foreach ($normalizedAliases as $alias) {
                 if ($nh === $alias) {
                     return (string) $i;
@@ -203,6 +208,9 @@ class CsvHelper
 
         // Pass 2: contains match (header contains alias or alias contains header)
         foreach ($normalizedHeaders as $i => $nh) {
+            if (in_array((string) $i, $excludeIndices, true)) {
+                continue;
+            }
             if ($nh === '' || strlen($nh) < 3) {
                 continue;
             }
