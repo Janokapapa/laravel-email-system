@@ -46,7 +46,7 @@ return [
     */
     'pmta' => [
         'bounce_api_key' => env('PMTA_BOUNCE_API_KEY'),
-        'servers' => ['caspmta1', 'caspmta2', 'caspmta3'],
+        'servers' => ['caspmta1', 'caspmta3', 'caspmta4'],
     ],
 
     /*
