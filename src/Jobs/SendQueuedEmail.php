@@ -305,7 +305,7 @@ class SendQueuedEmail implements ShouldQueue
         }
 
         $campaign = Campaign::find($this->emailLog->campaign_id);
-        if (!$campaign || $campaign->status === 'sent') {
+        if (!$campaign || in_array($campaign->status, ['sent', 'new'])) {
             return;
         }
 
