@@ -430,8 +430,9 @@ class AudienceUsersRelationManager extends RelationManager
                         return;
                     }
 
-                    // Store header detection result
+                    // Store header detection result and set the toggle
                     $this->csvHasHeader = $detected['has_header'];
+                    $set('csv_has_header', $detected['has_header']);
 
                     // Store options in Livewire property so Select closures can read them
                     $options = ['' => __('-- Skip --')];
@@ -507,11 +508,15 @@ class AudienceUsersRelationManager extends RelationManager
                     }
                 }),
 
-            Placeholder::make('header_detection_hint')
-                ->content(fn () => $this->csvHasHeader
-                    ? __('✓ Header row detected — first row will be skipped.')
-                    : __('⚠ No header row detected — all rows will be imported as data.'))
-                ->visible(fn (): bool => !empty($this->csvColumnOptions)),
+            Toggle::make('csv_has_header')
+                ->label(__('First row is header (skip it)'))
+                ->inline(false)
+                ->default(true)
+                ->live()
+                ->visible(fn (): bool => !empty($this->csvColumnOptions))
+                ->helperText(fn (Get $get) => ($get('csv_has_header') ?? true)
+                    ? __('The first row will be skipped.')
+                    : __('All rows will be imported as data.')),
 
             Select::make('map_name')
                 ->label(__('Name'))
@@ -694,7 +699,8 @@ class AudienceUsersRelationManager extends RelationManager
         $commas = substr_count($headerLine, ',');
         $separator = $semicolons >= $commas ? ';' : ',';
 
-        if ($this->csvHasHeader) {
+        $hasHeader = $data['csv_has_header'] ?? $this->csvHasHeader;
+        if ($hasHeader) {
             array_shift($lines); // skip header row — first row contains labels
         }
 
