@@ -707,8 +707,8 @@ class AudienceUsersRelationManager extends RelationManager
         $addedCount = 0;
         $updatedCount = 0;
         $skippedInvalid = 0;
-        $skippedInactive = 0;
-        $skippedOtherGroup = 0;
+        $skippedInactiveByGroup = [];
+        $skippedOtherByGroup = [];
         $typeErrors = [];
 
         $validZbStatuses = ['unverified', 'valid', 'catch_all', 'unknown', 'invalid'];
@@ -765,13 +765,14 @@ class AudienceUsersRelationManager extends RelationManager
                 $customFields['currency'] = $defaultCurrency;
             }
 
-            $isInactiveInOtherGroups = AudienceUser::where('email', $email)
+            $inactiveInGroup = AudienceUser::where('email', $email)
                 ->where('is_active', false)
                 ->where('email_audience_group_id', '<>', $groupId)
-                ->exists();
+                ->first();
 
-            if ($isInactiveInOtherGroups) {
-                $skippedInactive++;
+            if ($inactiveInGroup) {
+                $gid = $inactiveInGroup->email_audience_group_id;
+                $skippedInactiveByGroup[$gid] = ($skippedInactiveByGroup[$gid] ?? 0) + 1;
                 continue;
             }
 
@@ -795,8 +796,10 @@ class AudienceUsersRelationManager extends RelationManager
             }
 
             // Check if email exists in other groups
-            if (AudienceUser::where('email', $email)->exists()) {
-                $skippedOtherGroup++;
+            $existingInOther = AudienceUser::where('email', $email)->first();
+            if ($existingInOther) {
+                $gid = $existingInOther->email_audience_group_id;
+                $skippedOtherByGroup[$gid] = ($skippedOtherByGroup[$gid] ?? 0) + 1;
                 continue;
             }
 
@@ -815,6 +818,15 @@ class AudienceUsersRelationManager extends RelationManager
             $addedCount++;
         }
 
+        // Resolve group names for skip details
+        $allGroupIds = array_unique(array_merge(array_keys($skippedInactiveByGroup), array_keys($skippedOtherByGroup)));
+        $groupNames = [];
+        if (!empty($allGroupIds)) {
+            $groupNames = \JanDev\EmailSystem\Models\EmailAudienceGroup::whereIn('id', $allGroupIds)
+                ->pluck('name', 'id')
+                ->all();
+        }
+
         $bodyParts = [
             __('Added: :count', ['count' => $addedCount]),
             __('Updated: :count', ['count' => $updatedCount]),
@@ -822,11 +834,21 @@ class AudienceUsersRelationManager extends RelationManager
         if ($skippedInvalid > 0) {
             $bodyParts[] = __('Skipped (invalid): :count', ['count' => $skippedInvalid]);
         }
-        if ($skippedInactive > 0) {
-            $bodyParts[] = __('Skipped (inactive in other group): :count', ['count' => $skippedInactive]);
+        if (!empty($skippedInactiveByGroup)) {
+            $total = array_sum($skippedInactiveByGroup);
+            $details = [];
+            foreach ($skippedInactiveByGroup as $gid => $cnt) {
+                $details[] = $cnt . ' × ' . ($groupNames[$gid] ?? "#{$gid}");
+            }
+            $bodyParts[] = __('Skipped (inactive in other group): :count', ['count' => $total]) . ' (' . implode(', ', $details) . ')';
         }
-        if ($skippedOtherGroup > 0) {
-            $bodyParts[] = __('Skipped (exists in other group): :count', ['count' => $skippedOtherGroup]);
+        if (!empty($skippedOtherByGroup)) {
+            $total = array_sum($skippedOtherByGroup);
+            $details = [];
+            foreach ($skippedOtherByGroup as $gid => $cnt) {
+                $details[] = $cnt . ' × ' . ($groupNames[$gid] ?? "#{$gid}");
+            }
+            $bodyParts[] = __('Skipped (exists in other group): :count', ['count' => $total]) . ' (' . implode(', ', $details) . ')';
         }
 
         Notification::make()
