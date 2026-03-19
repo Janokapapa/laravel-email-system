@@ -408,7 +408,6 @@ class AudienceUsersRelationManager extends RelationManager
         $fields = [
             FileUpload::make('csv_file')
                 ->label(__('Select CSV File'))
-                ->acceptedFileTypes(['text/csv', 'text/plain', '.csv'])
                 ->disk('local')
                 ->directory('csv-uploads')
                 ->required()
