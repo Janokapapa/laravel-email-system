@@ -48,65 +48,64 @@ class PmtaSync extends Command
 
         if ($spooledCount === 0) {
             Log::channel('queue')->info('PmtaSync: no spooled emails found');
-            return 0;
-        }
+        } else {
+            Log::channel('queue')->info("PmtaSync: found {$spooledCount} spooled emails");
 
-        Log::channel('queue')->info("PmtaSync: found {$spooledCount} spooled emails");
+            // Track EML generation count per server to enforce batch_size
+            $serverBatchCount = [];
 
-        // Track EML generation count per server to enforce batch_size
-        $serverBatchCount = [];
+            foreach ($spooledQuery->cursor() as $emailLog) {
+                if (!$emailLog->sender_name) {
+                    Log::channel('queue')->warning("PmtaSync: spooled email {$emailLog->id} has no sender_name, skipping");
+                    continue;
+                }
 
-        foreach ($spooledQuery->cursor() as $emailLog) {
-            if (!$emailLog->sender_name) {
-                Log::channel('queue')->warning("PmtaSync: spooled email {$emailLog->id} has no sender_name, skipping");
-                continue;
-            }
+                $senderConfig = SenderResolver::get($emailLog->sender_name);
+                if (!$senderConfig || ($senderConfig['type'] ?? '') !== 'pmta') {
+                    Log::channel('queue')->warning("PmtaSync: email {$emailLog->id} sender '{$emailLog->sender_name}' is not pmta type, skipping");
+                    continue;
+                }
 
-            $senderConfig = SenderResolver::get($emailLog->sender_name);
-            if (!$senderConfig || ($senderConfig['type'] ?? '') !== 'pmta') {
-                Log::channel('queue')->warning("PmtaSync: email {$emailLog->id} sender '{$emailLog->sender_name}' is not pmta type, skipping");
-                continue;
-            }
+                // Resolve target server: routing profile → pmta_server fallback → legacy global routing
+                $resolvedServer = SenderResolver::resolveServerForRecipient($emailLog->recipient, $senderConfig);
 
-            // Resolve target server: routing profile → pmta_server fallback → legacy global routing
-            $resolvedServer = SenderResolver::resolveServerForRecipient($emailLog->recipient, $senderConfig);
+                $serverName = $resolvedServer['name'] ?? null;
 
-            $serverName = $resolvedServer['name'] ?? null;
-
-            // Apply batch_size limit per server (only for named servers)
-            if ($serverName !== null && $resolvedServer !== null) {
-                $batchSize = $resolvedServer['batch_size'] ?? null;
-                if ($batchSize !== null) {
-                    $count = $serverBatchCount[$serverName] ?? 0;
-                    if ($count >= (int) $batchSize) {
-                        continue; // Batch limit reached for this server
+                // Apply batch_size limit per server (only for named servers)
+                if ($serverName !== null && $resolvedServer !== null) {
+                    $batchSize = $resolvedServer['batch_size'] ?? null;
+                    if ($batchSize !== null) {
+                        $count = $serverBatchCount[$serverName] ?? 0;
+                        if ($count >= (int) $batchSize) {
+                            continue; // Batch limit reached for this server
+                        }
+                        $serverBatchCount[$serverName] = $count + 1;
                     }
-                    $serverBatchCount[$serverName] = $count + 1;
+                }
+
+                // Check if EML already exists (idempotent)
+                $expectedPath = $serverName !== null
+                    ? $spoolBase . '/outgoing/' . $serverName . '/email_' . $emailLog->id
+                    : $spoolBase . '/outgoing/email_' . $emailLog->id;
+
+                if (is_file($expectedPath)) {
+                    continue; // Already spooled
+                }
+
+                // Generate unsubscribe URL for this recipient
+                $unsubscribeUrl = $this->generateUnsubscribeUrl($emailLog);
+
+                // Write EML file
+                $spooler = new PmtaSpooler($senderConfig, $spoolBase, $resolvedServer, $serverName);
+                try {
+                    $spooler->writeEml($emailLog, $unsubscribeUrl);
+                } catch (\RuntimeException $e) {
+                    Log::channel('queue')->error("PmtaSync: failed to write EML for email {$emailLog->id}: " . $e->getMessage());
                 }
             }
-
-            // Check if EML already exists (idempotent)
-            $expectedPath = $serverName !== null
-                ? $spoolBase . '/outgoing/' . $serverName . '/email_' . $emailLog->id
-                : $spoolBase . '/outgoing/email_' . $emailLog->id;
-
-            if (is_file($expectedPath)) {
-                continue; // Already spooled
-            }
-
-            // Generate unsubscribe URL for this recipient
-            $unsubscribeUrl = $this->generateUnsubscribeUrl($emailLog);
-
-            // Write EML file
-            $spooler = new PmtaSpooler($senderConfig, $spoolBase, $resolvedServer, $serverName);
-            try {
-                $spooler->writeEml($emailLog, $unsubscribeUrl);
-            } catch (\RuntimeException $e) {
-                Log::channel('queue')->error("PmtaSync: failed to write EML for email {$emailLog->id}: " . $e->getMessage());
-            }
         }
 
-        // === PHASE 2: Sync per-server subdirectories ===
+        // === PHASE 2: Sync per-server subdirectories (always runs — handles failover files too) ===
         $this->syncServerDirectories($spoolBase);
 
         // === PHASE 3: Sync legacy flat outgoing/email_* files ===
@@ -133,6 +132,8 @@ class PmtaSync extends Command
             return;
         }
 
+        $failedServers = [];
+
         foreach ($serverDirs as $serverName => $serverDir) {
             $serverConfig = SenderResolver::pmtaServer($serverName);
 
@@ -146,7 +147,89 @@ class PmtaSync extends Command
                 mkdir($sentDir, 0775, true);
             }
 
-            $this->processServer($serverName, $serverDir, $sentDir, $serverConfig);
+            $success = $this->processServer($serverName, $serverDir, $sentDir, $serverConfig);
+
+            // Track failed servers that still have pending files
+            if (!$success) {
+                $pendingFiles = glob($serverDir . '/email_*') ?: [];
+                $pendingFiles = array_filter($pendingFiles, 'is_file');
+                if (!empty($pendingFiles)) {
+                    $failedServers[] = $serverName;
+                }
+            }
+        }
+
+        // === Failover: move files from failed servers to fallback ===
+        $this->handleFailover($spoolBase, $failedServers);
+    }
+
+    /**
+     * Move pending EML files from failed servers to their configured fallback.
+     * Rewrites x-virtual-mta header to match the fallback server's virtual_mta.
+     * Does NOT rewrite x-sender (VERP bounce domain is tied to DNS records).
+     */
+    protected function handleFailover(string $spoolBase, array $failedServers): void
+    {
+        if (empty($failedServers)) {
+            return;
+        }
+
+        $failoverMap = SenderResolver::pmtaFailoverMap();
+        if (empty($failoverMap)) {
+            Log::channel('queue')->warning('PmtaSync: servers failed (' . implode(', ', $failedServers) . ') but no failover map configured');
+            return;
+        }
+
+        $outgoing = $spoolBase . '/outgoing';
+
+        foreach ($failedServers as $failedName) {
+            $fallbackName = $failoverMap[$failedName] ?? null;
+
+            // Don't failover to a server that also failed in this cycle
+            if (!$fallbackName || in_array($fallbackName, $failedServers)) {
+                Log::channel('queue')->warning("PmtaSync: no viable fallback for '{$failedName}'"
+                    . ($fallbackName ? " (fallback '{$fallbackName}' also failed)" : ''));
+                continue;
+            }
+
+            $fallbackConfig = SenderResolver::pmtaServer($fallbackName);
+            if (!$fallbackConfig) {
+                Log::channel('queue')->warning("PmtaSync: fallback server '{$fallbackName}' config not found");
+                continue;
+            }
+
+            $srcDir = $outgoing . '/' . $failedName;
+            $dstDir = $outgoing . '/' . $fallbackName;
+            if (!is_dir($dstDir)) {
+                mkdir($dstDir, 0775, true);
+            }
+
+            $files = glob($srcDir . '/email_*') ?: [];
+            $files = array_filter($files, 'is_file');
+            $fallbackVmta = $fallbackConfig['virtual_mta'] ?? 'all';
+            $movedCount = 0;
+
+            foreach ($files as $file) {
+                // Rewrite x-virtual-mta header to match fallback server
+                $content = file_get_contents($file);
+                if ($content !== false) {
+                    $content = preg_replace(
+                        '/^x-virtual-mta: .+$/m',
+                        'x-virtual-mta: ' . $fallbackVmta,
+                        $content,
+                        1
+                    );
+                    file_put_contents($file, $content);
+                }
+
+                if (@rename($file, $dstDir . '/' . basename($file))) {
+                    $movedCount++;
+                }
+            }
+
+            if ($movedCount > 0) {
+                Log::channel('queue')->info("PmtaSync: failover {$failedName} → {$fallbackName}, moved {$movedCount} files");
+            }
         }
     }
 
@@ -218,7 +301,7 @@ class PmtaSync extends Command
      * Sync a server subdirectory to the remote PMTA server.
      * rsync source: outgoing/{serverName}/ (NOT the parent outgoing/)
      */
-    protected function processServer(string $serverName, string $serverDir, string $sentDir, array $serverConfig): void
+    protected function processServer(string $serverName, string $serverDir, string $sentDir, array $serverConfig): bool
     {
         $key  = $serverConfig['ssh_key'] ?? '';
         $host = $serverConfig['host'] ?? '';
@@ -229,14 +312,14 @@ class PmtaSync extends Command
 
         if (!$key || !file_exists($key)) {
             Log::channel('queue')->error("PmtaSync: SSH key not found for server '{$serverName}': {$key}");
-            return;
+            return false;
         }
 
         $localFiles = glob($serverDir . '/email_*') ?: [];
         $localFiles = array_filter($localFiles, 'is_file');
 
         if (empty($localFiles)) {
-            return;
+            return true; // No files = nothing to do, not a failure
         }
 
         $dest = $user . '@' . $host;
@@ -271,12 +354,14 @@ class PmtaSync extends Command
 
         if ($rsyncCode !== 0) {
             Log::channel('queue')->error("PmtaSync: rsync failed for '{$serverName}' after 5 attempts, exit_code={$rsyncCode}");
-            return;
+            return false;
         }
 
         Log::channel('queue')->info("PmtaSync: rsync OK for '{$serverName}'");
 
         $this->doSshMvAndMark($serverName, $serverDir, $sentDir, $dest, $key, $cm, $port, $tmp, $pick);
+
+        return true;
     }
 
     /**

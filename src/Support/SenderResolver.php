@@ -15,6 +15,7 @@ class SenderResolver
     protected const SMTP_SERVERS_CACHE_KEY = 'email_smtp_servers_cache';
     protected const DOMAIN_ROUTING_CACHE_KEY = 'email_domain_routing_cache';
     protected const ROUTING_PROFILES_CACHE_KEY = 'email_routing_profiles_cache';
+    protected const PMTA_FAILOVER_CACHE_KEY = 'email_pmta_failover_cache';
 
     /**
      * Return all enabled sender definitions (cached).
@@ -84,6 +85,7 @@ class SenderResolver
     public static function forgetCache(): void
     {
         Cache::forget(static::CACHE_KEY);
+        Cache::forget(static::PMTA_FAILOVER_CACHE_KEY);
     }
 
     /**
@@ -202,6 +204,27 @@ class SenderResolver
             }
         }
         return $options;
+    }
+
+    /**
+     * Return the PMTA failover map (cached).
+     * Format: ['caspmta3' => 'caspmta1', 'caspmta1' => 'caspmta3']
+     */
+    public static function pmtaFailoverMap(): array
+    {
+        return Cache::remember(static::PMTA_FAILOVER_CACHE_KEY, static::CACHE_TTL, function () {
+            $rules = Setting::get('email', 'pmta_failover', []);
+            if (!is_array($rules)) {
+                return [];
+            }
+            $map = [];
+            foreach ($rules as $rule) {
+                if (!empty($rule['server']) && !empty($rule['fallback'])) {
+                    $map[$rule['server']] = $rule['fallback'];
+                }
+            }
+            return $map;
+        });
     }
 
     /**
