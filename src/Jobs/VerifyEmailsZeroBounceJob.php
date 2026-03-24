@@ -59,8 +59,15 @@ class VerifyEmailsZeroBounceJob implements ShouldQueue, ShouldBeUnique
         $consecutiveErrors = 0;
         $aborted           = false;
 
+        // Normalize: bounced users should not be 'unverified' — fix before counting
+        AudienceUser::where('email_audience_group_id', $this->groupId)
+            ->where('bounced', true)
+            ->where('zerobounce_status', '!=', 'bounced')
+            ->update(['zerobounce_status' => 'bounced']);
+
         $totalUnverified = AudienceUser::where('email_audience_group_id', $this->groupId)
             ->where('zerobounce_status', 'unverified')
+            ->where('bounced', false)
             ->count();
 
         $groupName = \JanDev\EmailSystem\Models\EmailAudienceGroup::find($this->groupId)?->name ?? "Group #{$this->groupId}";
@@ -71,6 +78,7 @@ class VerifyEmailsZeroBounceJob implements ShouldQueue, ShouldBeUnique
         try {
             AudienceUser::where('email_audience_group_id', $this->groupId)
                 ->where('zerobounce_status', 'unverified')
+                ->where('bounced', false)
                 ->chunkById(100, function ($users) use (
                     &$verified, &$skipped, &$errors, &$consecutiveErrors, &$aborted, $tracker
                 ) {

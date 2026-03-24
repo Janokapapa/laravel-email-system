@@ -33,6 +33,7 @@ class ZeroBounce
     public const STATUS_CATCH_ALL  = 'catch_all';
     public const STATUS_UNKNOWN    = 'unknown';
     public const STATUS_INVALID    = 'invalid';
+    public const STATUS_BOUNCED    = 'bounced';
 
     /**
      * Check if ZeroBounce verification is enabled.
@@ -252,6 +253,7 @@ class ZeroBounce
             self::STATUS_CATCH_ALL  => 'Catch-All',
             self::STATUS_UNKNOWN    => 'Unknown',
             self::STATUS_INVALID    => 'Invalid',
+            self::STATUS_BOUNCED    => 'Bounced',
             self::STATUS_UNVERIFIED => 'Unverified',
             default                 => ucfirst($status),
         };
@@ -273,6 +275,7 @@ class ZeroBounce
             self::STATUS_CATCH_ALL  => 'warning',
             self::STATUS_UNKNOWN    => 'gray',
             self::STATUS_INVALID    => 'danger',
+            self::STATUS_BOUNCED    => 'danger',
             self::STATUS_UNVERIFIED => 'info',
             default                 => 'gray',
         };

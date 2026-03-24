@@ -105,6 +105,7 @@ class ProcessMailgunWebhook implements ShouldQueue
                 'bounce_reason' => $bounceReason,
                 'bounced_at' => now(),
                 'is_active' => false,
+                'zerobounce_status' => 'bounced',
             ]);
 
             // Call custom bounce handler if configured
@@ -122,6 +123,7 @@ class ProcessMailgunWebhook implements ShouldQueue
     private function handleComplaint(): void
     {
         $recipient = $this->data['recipient'] ?? null;
+        $recipient = $recipient ? strtolower(trim($recipient)) : null;
         $messageId = $this->data['message_id'] ?? null;
 
         if ($recipient && $messageId) {
@@ -136,6 +138,17 @@ class ProcessMailgunWebhook implements ShouldQueue
         if ($recipient) {
             AudienceUser::where('email', $recipient)->update(['is_active' => false]);
 
+            // Save to global bounce registry so re-imports are blocked by AudienceUserObserver
+            BouncedEmail::updateOrCreate(
+                ['email' => $recipient],
+                [
+                    'bounce_type' => 'complaint',
+                    'bounce_reason' => 'Mailgun spam complaint',
+                    'source' => 'mailgun',
+                    'bounced_at' => now(),
+                ]
+            );
+
             $complaintHandler = resolve_callback(config('email-system.complaint_handler'));
             if ($complaintHandler) {
                 $complaintHandler($recipient);
@@ -146,6 +159,7 @@ class ProcessMailgunWebhook implements ShouldQueue
     private function handleUnsubscribe(): void
     {
         $recipient = $this->data['recipient'] ?? null;
+        $recipient = $recipient ? strtolower(trim($recipient)) : null;
 
         if ($recipient) {
             AudienceUser::where('email', $recipient)->update(['is_active' => false]);

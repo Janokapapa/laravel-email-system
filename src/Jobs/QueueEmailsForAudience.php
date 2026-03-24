@@ -91,7 +91,12 @@ class QueueEmailsForAudience implements ShouldQueue
         $totalUsers = \JanDev\EmailSystem\Support\CampaignFilterBuilder::applyFilters(
             $audienceGroup->audienceUsers()
                 ->where('is_active', true)
-                ->where('bounced', false),
+                ->where('bounced', false)
+                ->whereNotExists(function ($sub) {
+                    $sub->select(\Illuminate\Support\Facades\DB::raw(1))
+                        ->from('bounced_emails')
+                        ->whereColumn('bounced_emails.email', 'audience_users.email');
+                }),
             $this->customFieldFilters
         )->count();
 
@@ -104,25 +109,17 @@ class QueueEmailsForAudience implements ShouldQueue
 
         $tracker = JobTracker::start('email_queue', $label, $totalUsers, $trackerMeta);
 
-        // Get all bounced/inactive emails across ALL audience groups
-        $blockedFromAudience = AudienceUser::where(function ($q) {
-                $q->where('is_active', false)
-                  ->orWhere('bounced', true);
-            })
-            ->pluck('email')
-            ->toArray();
-
-        // Get additional blocked emails from config callback
+        // Get additional blocked emails from config callback (e.g. custom opt-out list)
         $additionalBlocked = [];
         $blockedCallback = resolve_callback(config('email-system.blocked_emails_callback'));
         if ($blockedCallback) {
             $additionalBlocked = $blockedCallback();
         }
 
-        // Merge both lists for O(1) lookup
-        $blockedEmails = array_flip(array_unique(array_merge($blockedFromAudience, $additionalBlocked)));
+        // Build O(1) lookup for callback-blocked emails only
+        $additionalBlockedEmails = !empty($additionalBlocked) ? array_flip(array_unique($additionalBlocked)) : [];
 
-        Log::channel('queue')->info("QueueEmailsForAudience: Blocked emails count: " . count($blockedEmails));
+        Log::channel('queue')->info("QueueEmailsForAudience: Additional blocked (callback): " . count($additionalBlockedEmails));
 
         // Get emails already sent/queued/spooled — scope by campaign_id when available
         // to prevent duplicate sends within the same campaign (and avoid cross-campaign interference)
@@ -211,13 +208,20 @@ class QueueEmailsForAudience implements ShouldQueue
         $alreadySentSkippedCount = 0;
 
         // Process in chunks to avoid memory issues
+        // NOT EXISTS subquery excludes emails in the global bounce registry (hard bounces + complaints)
+        // without loading the entire bounced_emails table into PHP memory.
         \JanDev\EmailSystem\Support\CampaignFilterBuilder::applyFilters(
             $audienceGroup->audienceUsers()
                 ->where('is_active', true)
-                ->where('bounced', false),
+                ->where('bounced', false)
+                ->whereNotExists(function ($sub) {
+                    $sub->select(\Illuminate\Support\Facades\DB::raw(1))
+                        ->from('bounced_emails')
+                        ->whereColumn('bounced_emails.email', 'audience_users.email');
+                }),
             $this->customFieldFilters
         )->chunkById(1000, function ($users) use (
-                $template, $audienceGroup, $sender, $blockedEmails, $alreadySentEmails,
+                $template, $audienceGroup, $sender, $additionalBlockedEmails, $alreadySentEmails,
                 &$batchData, &$queuedCount, &$skippedCount, &$providerSkippedCount, &$alreadySentSkippedCount, $batchSize,
                 $initialStatus, $tracker, $contentPool, $contentType, $senderDisplayName, $replyTo
             ) {
@@ -234,8 +238,8 @@ class QueueEmailsForAudience implements ShouldQueue
                         continue;
                     }
 
-                    // Skip if blocked
-                    if (isset($blockedEmails[$user->email])) {
+                    // Skip if blocked by callback (custom opt-out list)
+                    if (isset($additionalBlockedEmails[$user->email])) {
                         $skippedCount++;
                         continue;
                     }

@@ -15,6 +15,7 @@ use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Select;
+use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
 use Filament\Tables\Table;
@@ -137,6 +138,7 @@ class AudienceUsersRelationManager extends RelationManager
                         'catch_all'  => __('Catch-All'),
                         'unknown'    => __('Unknown'),
                         'invalid'    => __('Invalid'),
+                        'bounced'    => __('Bounced'),
                     ])
                     ->placeholder(__('All ZB Statuses'))
                     ->visible(fn () => ZeroBounce::isEnabled()),
@@ -228,16 +230,9 @@ class AudienceUsersRelationManager extends RelationManager
                         $addedCount = 0;
 
                         foreach ($subscribedUsers as $user) {
-                            $isInactiveInOtherGroups = AudienceUser::where('email', $user->email)
-                                ->where('is_active', false)
-                                ->where('email_audience_group_id', '<>', $groupId)
+                            $exists = AudienceUser::where('email', $user->email)
+                                ->where('email_audience_group_id', $groupId)
                                 ->exists();
-
-                            if ($isInactiveInOtherGroups) {
-                                continue;
-                            }
-
-                            $exists = AudienceUser::where('email', $user->email)->exists();
 
                             if (!$exists) {
                                 AudienceUser::create([
@@ -284,17 +279,9 @@ class AudienceUsersRelationManager extends RelationManager
                         $users = $callback($data['date_from'], $data['date_to']);
 
                         foreach ($users as $user) {
-                            $isInactiveInOtherGroups = AudienceUser::where('email', $user->email)
-                                ->where('is_active', false)
-                                ->where('email_audience_group_id', '<>', $groupId)
+                            $exists = AudienceUser::where('email', $user->email)
+                                ->where('email_audience_group_id', $groupId)
                                 ->exists();
-
-                            if ($isInactiveInOtherGroups) {
-                                $skippedCount++;
-                                continue;
-                            }
-
-                            $exists = AudienceUser::where('email', $user->email)->exists();
 
                             if ($exists) {
                                 $skippedCount++;
@@ -456,6 +443,12 @@ class AudienceUsersRelationManager extends RelationManager
                         'email_address', 'emailaddress', 'e_mail', 'e_mail_cim',
                         'email_cim', 'user_email', 'contact_email',
                     ], $claimedIndices);
+                    // If only 2 columns and email was detected but name wasn't,
+                    // assign the other column as name
+                    if (count($headers) === 2 && $emailIdx !== null && $nameIdx === null) {
+                        $nameIdx = $emailIdx === 0 ? 1 : 0;
+                    }
+
                     if ($nameIdx !== null) {
                         $set('map_name', $nameIdx);
                         $claimedIndices[] = $nameIdx;
@@ -500,12 +493,7 @@ class AudienceUsersRelationManager extends RelationManager
                         }
                     }
 
-                    if (!$countryDetected) {
-                        $set('default_country', 'GB');
-                    }
-                    if (!$currencyDetected) {
-                        $set('default_currency', 'GBP');
-                    }
+                    // No default country/currency — user sets them manually if needed
                 }),
 
             Toggle::make('csv_has_header')
@@ -530,10 +518,13 @@ class AudienceUsersRelationManager extends RelationManager
                 ->visible(fn (): bool => !empty($this->csvColumnOptions))
                 ->required(fn (): bool => !empty($this->csvColumnOptions)),
 
+        ];
+
+        // Build extra fields for the collapsible section
+        $extraFields = [
             Select::make('map_zerobounce_status')
                 ->label(__('ZeroBounce Status'))
-                ->options(fn (): array => $this->csvColumnOptions)
-                ->visible(fn (): bool => !empty($this->csvColumnOptions)),
+                ->options(fn (): array => $this->csvColumnOptions),
         ];
 
         $hasCountryField = false;
@@ -545,8 +536,7 @@ class AudienceUsersRelationManager extends RelationManager
             }
             $select = Select::make('map_cf_' . $slug)
                 ->label($def['name'] ?? $slug)
-                ->options(fn (): array => $this->csvColumnOptions)
-                ->visible(fn (): bool => !empty($this->csvColumnOptions));
+                ->options(fn (): array => $this->csvColumnOptions);
 
             if ($slug === 'country') {
                 $select = $select->live();
@@ -558,17 +548,17 @@ class AudienceUsersRelationManager extends RelationManager
                 $hasCurrencyField = true;
             }
 
-            $fields[] = $select;
+            $extraFields[] = $select;
         }
 
         if ($hasCountryField) {
-            $fields[] = Select::make('default_country')
+            $extraFields[] = Select::make('default_country')
                 ->label(__('Default Country'))
                 ->options(CsvHelper::getCountryOptions())
                 ->searchable()
                 ->live()
                 ->helperText(__('Applied to all imported users when no country column is mapped'))
-                ->visible(fn (Get $get): bool => !empty($this->csvColumnOptions) && (($get('map_cf_country') ?? '') === ''))
+                ->visible(fn (Get $get): bool => ($get('map_cf_country') ?? '') === '')
                 ->afterStateUpdated(function ($state, Get $get, Set $set) use ($hasCurrencyField) {
                     if ($hasCurrencyField && $state && ($get('map_cf_currency') ?? '') === '' && ($get('default_currency') ?? '') === '') {
                         $currency = CsvHelper::currencyForCountry($state);
@@ -580,13 +570,18 @@ class AudienceUsersRelationManager extends RelationManager
         }
 
         if ($hasCurrencyField) {
-            $fields[] = Select::make('default_currency')
+            $extraFields[] = Select::make('default_currency')
                 ->label(__('Default Currency'))
                 ->options(CsvHelper::getCurrencyOptions())
                 ->searchable()
                 ->helperText(__('Applied to all imported users when no currency column is mapped. Auto-filled from country.'))
-                ->visible(fn (Get $get): bool => !empty($this->csvColumnOptions) && (($get('map_cf_currency') ?? '') === ''));
+                ->visible(fn (Get $get): bool => ($get('map_cf_currency') ?? '') === '');
         }
+
+        $fields[] = Section::make(__('Advanced Mapping'))
+            ->collapsed()
+            ->schema($extraFields)
+            ->visible(fn (): bool => !empty($this->csvColumnOptions));
 
         return $fields;
     }
@@ -685,8 +680,13 @@ class AudienceUsersRelationManager extends RelationManager
             }
         }
 
-        // Read file and detect separator
-        $lines = file($csvPath);
+        // Read file, convert to UTF-8 if needed, and detect separator
+        $rawContent = file_get_contents($csvPath);
+        $encoding = mb_detect_encoding($rawContent, ['UTF-8', 'Windows-1252', 'ISO-8859-1'], true);
+        if ($encoding && $encoding !== 'UTF-8') {
+            $rawContent = mb_convert_encoding($rawContent, 'UTF-8', $encoding);
+        }
+        $lines = explode("\n", $rawContent);
         Storage::disk('local')->delete($data['csv_file']);
 
         if (empty($lines)) {
@@ -707,11 +707,9 @@ class AudienceUsersRelationManager extends RelationManager
         $addedCount = 0;
         $updatedCount = 0;
         $skippedInvalid = 0;
-        $skippedInactiveByGroup = [];
-        $skippedOtherByGroup = [];
         $typeErrors = [];
 
-        $validZbStatuses = ['unverified', 'valid', 'catch_all', 'unknown', 'invalid'];
+        $validZbStatuses = ['unverified', 'valid', 'catch_all', 'unknown', 'invalid', 'bounced'];
 
         foreach ($lines as $line) {
             $line = trim($line);
@@ -765,17 +763,6 @@ class AudienceUsersRelationManager extends RelationManager
                 $customFields['currency'] = $defaultCurrency;
             }
 
-            $inactiveInGroup = AudienceUser::where('email', $email)
-                ->where('is_active', false)
-                ->where('email_audience_group_id', '<>', $groupId)
-                ->first();
-
-            if ($inactiveInGroup) {
-                $gid = $inactiveInGroup->email_audience_group_id;
-                $skippedInactiveByGroup[$gid] = ($skippedInactiveByGroup[$gid] ?? 0) + 1;
-                continue;
-            }
-
             // Check if user already exists in this group — update instead of skip
             $existing = AudienceUser::where('email', $email)
                 ->where('email_audience_group_id', $groupId)
@@ -790,16 +777,12 @@ class AudienceUsersRelationManager extends RelationManager
                     $updateData['zerobounce_status'] = $zbStatus;
                     $updateData['zerobounce_checked_at'] = now();
                 }
+                // Normalize: bounced users must have zerobounce_status = 'bounced'
+                if ($existing->bounced && ($existing->zerobounce_status !== 'bounced') && $zbStatus === null) {
+                    $updateData['zerobounce_status'] = 'bounced';
+                }
                 $existing->update($updateData);
                 $updatedCount++;
-                continue;
-            }
-
-            // Check if email exists in other groups
-            $existingInOther = AudienceUser::where('email', $email)->first();
-            if ($existingInOther) {
-                $gid = $existingInOther->email_audience_group_id;
-                $skippedOtherByGroup[$gid] = ($skippedOtherByGroup[$gid] ?? 0) + 1;
                 continue;
             }
 
@@ -818,37 +801,12 @@ class AudienceUsersRelationManager extends RelationManager
             $addedCount++;
         }
 
-        // Resolve group names for skip details
-        $allGroupIds = array_unique(array_merge(array_keys($skippedInactiveByGroup), array_keys($skippedOtherByGroup)));
-        $groupNames = [];
-        if (!empty($allGroupIds)) {
-            $groupNames = \JanDev\EmailSystem\Models\EmailAudienceGroup::whereIn('id', $allGroupIds)
-                ->pluck('name', 'id')
-                ->all();
-        }
-
         $bodyParts = [
             __('Added: :count', ['count' => $addedCount]),
             __('Updated: :count', ['count' => $updatedCount]),
         ];
         if ($skippedInvalid > 0) {
             $bodyParts[] = __('Skipped (invalid): :count', ['count' => $skippedInvalid]);
-        }
-        if (!empty($skippedInactiveByGroup)) {
-            $total = array_sum($skippedInactiveByGroup);
-            $details = [];
-            foreach ($skippedInactiveByGroup as $gid => $cnt) {
-                $details[] = $cnt . ' × ' . ($groupNames[$gid] ?? "#{$gid}");
-            }
-            $bodyParts[] = __('Skipped (inactive in other group): :count', ['count' => $total]) . ' (' . implode(', ', $details) . ')';
-        }
-        if (!empty($skippedOtherByGroup)) {
-            $total = array_sum($skippedOtherByGroup);
-            $details = [];
-            foreach ($skippedOtherByGroup as $gid => $cnt) {
-                $details[] = $cnt . ' × ' . ($groupNames[$gid] ?? "#{$gid}");
-            }
-            $bodyParts[] = __('Skipped (exists in other group): :count', ['count' => $total]) . ' (' . implode(', ', $details) . ')';
         }
 
         Notification::make()

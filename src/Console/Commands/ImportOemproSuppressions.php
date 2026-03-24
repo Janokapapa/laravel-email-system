@@ -87,6 +87,7 @@ class ImportOemproSuppressions extends Command
                                 'is_active'  => false,
                                 'bounce_type' => 'hard',
                                 'bounced_at' => $now,
+                                'zerobounce_status' => 'bounced',
                             ]);
                     }
 

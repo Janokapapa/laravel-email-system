@@ -3,6 +3,7 @@
 namespace JanDev\EmailSystem\Console\Commands;
 
 use JanDev\EmailSystem\Models\AudienceUser;
+use JanDev\EmailSystem\Models\BouncedEmail;
 use Illuminate\Console\Command;
 
 class SyncMailgunSuppressions extends Command
@@ -71,29 +72,56 @@ class SyncMailgunSuppressions extends Command
 
             foreach ($allBounces as $bounce) {
                 $email = strtolower($bounce['email']);
+                $bounceReason = trim("[{$bounce['code']}] {$bounce['error']}");
+                $bouncedAt = $bounce['created_at'] ? new \DateTime($bounce['created_at']) : now();
 
-                $audienceUser = AudienceUser::where('email', $email)->first();
-
-                if (!$audienceUser) {
-                    $notFound++;
-                    $bar->advance();
-                    continue;
-                }
-
-                if ($audienceUser->bounced) {
+                // Check if already in bounce registry
+                if (BouncedEmail::where('email', $email)->exists()) {
                     $alreadyBounced++;
                     $bar->advance();
                     continue;
                 }
 
+                // Check if any audience_user row exists for this email
+                $existsInAudience = AudienceUser::where('email', $email)->exists();
+                if (!$existsInAudience) {
+                    $notFound++;
+                    // Still write to bounce registry so future imports are blocked
+                    if (!$dryRun) {
+                        BouncedEmail::updateOrCreate(
+                            ['email' => $email],
+                            [
+                                'bounce_type'  => 'hard',
+                                'bounce_reason' => $bounceReason,
+                                'source'       => 'mailgun',
+                                'bounced_at'   => $bouncedAt,
+                            ]
+                        );
+                    }
+                    $bar->advance();
+                    continue;
+                }
+
                 if (!$dryRun) {
-                    $audienceUser->update([
-                        'is_active' => false,
-                        'bounced' => true,
-                        'bounce_type' => 'hard',
-                        'bounce_reason' => "[{$bounce['code']}] {$bounce['error']}",
-                        'bounced_at' => $bounce['created_at'] ? new \DateTime($bounce['created_at']) : now(),
+                    // Mass-update ALL rows for this email (many-to-many support)
+                    AudienceUser::where('email', $email)->update([
+                        'is_active'    => false,
+                        'bounced'      => true,
+                        'bounce_type'  => 'hard',
+                        'bounce_reason' => $bounceReason,
+                        'bounced_at'   => $bouncedAt,
+                        'zerobounce_status' => 'bounced',
                     ]);
+                    // Write to global bounce registry
+                    BouncedEmail::updateOrCreate(
+                        ['email' => $email],
+                        [
+                            'bounce_type'  => 'hard',
+                            'bounce_reason' => $bounceReason,
+                            'source'       => 'mailgun',
+                            'bounced_at'   => $bouncedAt,
+                        ]
+                    );
                 }
                 $synced++;
                 $bar->advance();

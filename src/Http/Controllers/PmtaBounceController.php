@@ -58,6 +58,7 @@ class PmtaBounceController extends Controller
             'bounce_reason' => $bounceReason,
             'bounced_at' => now(),
             'is_active' => false,
+            'zerobounce_status' => 'bounced',
         ]);
         $found = $affectedRows > 0;
 
