@@ -27,6 +27,7 @@ use Filament\Actions\Action;
 use Filament\Actions\EditAction;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Notifications\Notification;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 
@@ -387,6 +388,18 @@ class AudienceUsersRelationManager extends RelationManager
                     ->action(function () {
                         $groupId = $this->getOwnerRecord()->id;
 
+                        // Collect bounced emails before updating
+                        $bouncedEmails = AudienceUser::where('email_audience_group_id', $groupId)
+                            ->where(function ($q) {
+                                $q->where('bounced', true)
+                                    ->orWhere('zerobounce_status', 'bounced');
+                            })
+                            ->pluck('email')
+                            ->map(fn ($e) => strtolower($e))
+                            ->unique()
+                            ->values()
+                            ->all();
+
                         $affected = AudienceUser::where('email_audience_group_id', $groupId)
                             ->where(function ($q) {
                                 $q->where('bounced', true)
@@ -403,9 +416,14 @@ class AudienceUsersRelationManager extends RelationManager
                                 'zerobounce_checked_at' => null,
                             ]);
 
+                        // Also remove from global bounce registry so they won't be filtered during sending
+                        if (!empty($bouncedEmails)) {
+                            DB::table('bounced_emails')->whereIn('email', $bouncedEmails)->delete();
+                        }
+
                         Notification::make()
                             ->title(__('Bounce Status Removed'))
-                            ->body(__(':count subscriber(s) updated. You can now re-verify them with ZeroBounce.', ['count' => $affected]))
+                            ->body(__(':count subscriber(s) updated and removed from bounce registry. You can now re-verify them with ZeroBounce.', ['count' => $affected]))
                             ->success()
                             ->send();
                     }),

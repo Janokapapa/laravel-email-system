@@ -14,6 +14,7 @@ use JanDev\EmailSystem\Services\ZeroBounce;
 use JanDev\EmailSystem\Support\CampaignFilterBuilder;
 use JanDev\EmailSystem\Support\SenderResolver;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
 use Filament\Forms\Components\CheckboxList;
@@ -182,12 +183,17 @@ class EditCampaign extends EditRecord
             return;
         }
 
-        // Calculate total recipients with custom field filters applied
+        // Calculate total recipients with same filters as QueueEmailsForAudience
         $total = 0;
         foreach ($groups as $group) {
             $query = $group->audienceUsers()
                 ->where('is_active', true)
-                ->where('bounced', false);
+                ->where('bounced', false)
+                ->whereNotExists(function ($sub) {
+                    $sub->select(DB::raw(1))
+                        ->from('bounced_emails')
+                        ->whereColumn('bounced_emails.email', 'audience_users.email');
+                });
             CampaignFilterBuilder::applyFilters($query, $filters);
             $total += $query->count();
         }

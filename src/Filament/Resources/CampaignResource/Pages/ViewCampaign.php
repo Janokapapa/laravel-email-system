@@ -6,6 +6,8 @@ use JanDev\EmailSystem\Filament\Resources\CampaignResource;
 use JanDev\EmailSystem\Models\EmailAudienceGroup;
 use JanDev\EmailSystem\Models\EmailLog;
 use JanDev\EmailSystem\Jobs\DispatchCampaign;
+use JanDev\EmailSystem\Support\CampaignFilterBuilder;
+use Illuminate\Support\Facades\DB;
 use Filament\Resources\Pages\Page;
 
 class ViewCampaign extends Page
@@ -100,14 +102,31 @@ class ViewCampaign extends Page
 
     public function retryCampaign(): void
     {
-        $this->record->update(['status' => 'sending']);
+        // Recalculate total_recipients with same filters as QueueEmailsForAudience
+        $groups = EmailAudienceGroup::whereIn('id', $this->record->audience_group_ids ?? [])->get();
+        $filters = $this->record->custom_field_filters ?? [];
+        $total = 0;
+        foreach ($groups as $group) {
+            $query = $group->audienceUsers()
+                ->where('is_active', true)
+                ->where('bounced', false)
+                ->whereNotExists(function ($sub) {
+                    $sub->select(DB::raw(1))
+                        ->from('bounced_emails')
+                        ->whereColumn('bounced_emails.email', 'audience_users.email');
+                });
+            CampaignFilterBuilder::applyFilters($query, $filters);
+            $total += $query->count();
+        }
+
+        $this->record->update(['status' => 'sending', 'total_recipients' => $total]);
         $this->record->refresh();
 
         DispatchCampaign::dispatch($this->record);
 
         \Filament\Notifications\Notification::make()
             ->title(__('Campaign retry started'))
-            ->body(__('Already sent emails will be skipped. Only unsent recipients will be processed.'))
+            ->body(__('Sending to :count recipients. Already sent emails will be skipped.', ['count' => number_format($total)]))
             ->success()
             ->send();
     }
