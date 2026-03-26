@@ -5,6 +5,7 @@ namespace JanDev\EmailSystem\Filament\Resources\CampaignResource\Pages;
 use JanDev\EmailSystem\Filament\Resources\CampaignResource;
 use JanDev\EmailSystem\Models\EmailAudienceGroup;
 use JanDev\EmailSystem\Models\EmailLog;
+use JanDev\EmailSystem\Jobs\DispatchCampaign;
 use Filament\Resources\Pages\Page;
 
 class ViewCampaign extends Page
@@ -93,6 +94,20 @@ class ViewCampaign extends Page
 
         \Filament\Notifications\Notification::make()
             ->title(__('Campaign resumed'))
+            ->success()
+            ->send();
+    }
+
+    public function retryCampaign(): void
+    {
+        $this->record->update(['status' => 'sending']);
+        $this->record->refresh();
+
+        DispatchCampaign::dispatch($this->record);
+
+        \Filament\Notifications\Notification::make()
+            ->title(__('Campaign retry started'))
+            ->body(__('Already sent emails will be skipped. Only unsent recipients will be processed.'))
             ->success()
             ->send();
     }

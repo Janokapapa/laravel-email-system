@@ -133,6 +133,12 @@
                                 {{ __('Resume') }}
                             </button>
                         @endif
+                        @if(in_array($r->status, ['failed', 'partial']))
+                            <button wire:click="retryCampaign" wire:confirm="{{ __('Retry this campaign? Already sent emails will be skipped.') }}" style="display:inline-flex;align-items:center;gap:4px;border-radius:6px;padding:4px 10px;font-size:12px;font-weight:500;border:1px solid #d97706;background:#fffbeb;color:#d97706;cursor:pointer">
+                                <svg style="width:14px;height:14px" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M15.312 11.424a5.5 5.5 0 0 1-9.201 2.466l-.312-.311h2.433a.75.75 0 0 0 0-1.5H4.397a.75.75 0 0 0-.75.75v3.834a.75.75 0 0 0 1.5 0v-2.433l.31.311a7 7 0 0 0 11.712-3.138.75.75 0 0 0-1.449-.39Zm-11.23-3.849a.75.75 0 0 0 1.449.39A5.5 5.5 0 0 1 14.7 10.42l.312.311h-2.433a.75.75 0 0 0 0 1.5h3.834a.75.75 0 0 0 .75-.75V7.647a.75.75 0 0 0-1.5 0v2.433l-.31-.311A7 7 0 0 0 3.674 12.907a.75.75 0 0 0 .408-1.332Z" clip-rule="evenodd"/></svg>
+                                {{ __('Retry') }}
+                            </button>
+                        @endif
                         @if($r->content_type === 'text')
                             <span class="cv-badge-sm" style="background:#f3f4f6;color:#6b7280">{{ __('Plain Text') }}</span>
                         @endif
