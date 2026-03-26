@@ -24,7 +24,7 @@ class VerifyEmailsZeroBounceJob implements ShouldQueue, ShouldBeUnique
     public int $timeout   = 3600;
     public int $uniqueFor = 3600;
 
-    /** @var callable|null Injectable validator for testing; null uses ZeroBounce::validate() */
+    /** @var callable|null Injectable batch validator for testing; null uses ZeroBounce::validateBatch() */
     private $validator = null;
 
     public function __construct(
@@ -43,6 +43,7 @@ class VerifyEmailsZeroBounceJob implements ShouldQueue, ShouldBeUnique
     /**
      * Inject a custom validator callable (for unit testing).
      * Signature: callable(string $email): ?array{'status': string, 'sub_status': string|null}
+     * Note: internally each call result is collected into a batch result map.
      */
     public function setValidator(callable $fn): static
     {
@@ -79,15 +80,18 @@ class VerifyEmailsZeroBounceJob implements ShouldQueue, ShouldBeUnique
             AudienceUser::where('email_audience_group_id', $this->groupId)
                 ->where('zerobounce_status', 'unverified')
                 ->where('bounced', false)
-                ->chunkById(100, function ($users) use (
+                ->chunkById(ZeroBounce::BATCH_SIZE, function ($users) use (
                     &$verified, &$skipped, &$errors, &$consecutiveErrors, &$aborted, $tracker
                 ) {
                     if ($aborted) {
-                        return false; // Stop chunking
+                        return false;
                     }
 
+                    // Split users: those with existing cross-group results vs those needing API
+                    $needsApi = [];
+                    $crossGroupResults = [];
+
                     foreach ($users as $user) {
-                        // Check if this email was already verified in another list
                         $existing = AudienceUser::where('email', $user->email)
                             ->where('id', '!=', $user->id)
                             ->whereNotNull('zerobounce_checked_at')
@@ -95,42 +99,53 @@ class VerifyEmailsZeroBounceJob implements ShouldQueue, ShouldBeUnique
                             ->first();
 
                         if ($existing) {
-                            $result = [
+                            $crossGroupResults[$user->email] = [
                                 'status'     => $existing->zerobounce_status,
                                 'sub_status' => $existing->zerobounce_sub_status,
                             ];
                         } else {
-                            $result = $this->validateEmail($user->email);
-
-                            if ($result === null) {
-                                $errors++;
-                                $consecutiveErrors++;
-                                $skipped++;
-                                $tracker->incrementFailed();
-                                $tracker->incrementProgress();
-
-                                if ($consecutiveErrors >= 10) {
-                                    Log::channel('queue')->error(
-                                        "VerifyEmailsZeroBounceJob: Aborting — 10 consecutive API failures. " .
-                                        "ZeroBounce API may be down. GroupId={$this->groupId}"
-                                    );
-                                    $aborted = true;
-                                    return false; // Stop chunk
-                                }
-
-                                continue;
-                            }
-
-                            // Successful API call — reset consecutive error counter
-                            $consecutiveErrors = 0;
-
-                            $delayMs = config('email-system.zerobounce.delay_ms', 200);
-                            if ($delayMs > 0) {
-                                usleep($delayMs * 1000);
-                            }
+                            $needsApi[] = $user->email;
                         }
+                    }
 
-                        $now = Carbon::now();
+                    // Batch validate emails that need API calls
+                    $apiResults = [];
+                    if (!empty($needsApi)) {
+                        $apiResults = $this->validateBatch($needsApi);
+
+                        if ($apiResults === null) {
+                            $errors += count($needsApi);
+                            $skipped += count($needsApi);
+                            $consecutiveErrors++;
+                            $tracker->incrementFailed(count($needsApi));
+                            $tracker->incrementProgress(count($needsApi));
+
+                            if ($consecutiveErrors >= 3) {
+                                Log::channel('queue')->error(
+                                    "VerifyEmailsZeroBounceJob: Aborting — 3 consecutive batch failures. " .
+                                    "ZeroBounce API may be down. GroupId={$this->groupId}"
+                                );
+                                $aborted = true;
+                                return false;
+                            }
+
+                            // Still apply cross-group results even if API failed
+                            $apiResults = [];
+                        } else {
+                            $consecutiveErrors = 0;
+                        }
+                    }
+
+                    // Merge results
+                    $allResults = array_merge($crossGroupResults, $apiResults);
+                    $now = Carbon::now();
+
+                    foreach ($users as $user) {
+                        $result = $allResults[$user->email] ?? null;
+
+                        if ($result === null) {
+                            continue;
+                        }
 
                         // Update all lists where this email is unverified
                         AudienceUser::where('email', $user->email)
@@ -148,12 +163,12 @@ class VerifyEmailsZeroBounceJob implements ShouldQueue, ShouldBeUnique
 
                     Log::channel('queue')->info(
                         "VerifyEmailsZeroBounceJob: Progress — {$verified} verified, {$skipped} skipped " .
-                        "(GroupId={$this->groupId})"
+                        "(GroupId={$this->groupId}, batch=" . count($needsApi) . " API + " . count($crossGroupResults) . " cached)"
                     );
                 });
 
             $tracker->flush();
-            $aborted ? $tracker->markFailed('Aborted — 10 consecutive API failures') : $tracker->markCompleted();
+            $aborted ? $tracker->markFailed('Aborted — 3 consecutive batch failures') : $tracker->markCompleted();
 
             $duration = round(microtime(true) - $startTime, 2);
 
@@ -191,15 +206,27 @@ class VerifyEmailsZeroBounceJob implements ShouldQueue, ShouldBeUnique
     }
 
     /**
-     * Validate an email address. Uses the injectable validator in tests,
-     * or falls back to the ZeroBounce service in production.
+     * Validate a batch of emails. Uses the injectable validator in tests
+     * (calling it per-email to maintain test compatibility), or falls back
+     * to ZeroBounce::validateBatch() in production.
+     *
+     * @return array<string, array{status: string, sub_status: string|null}>|null
      */
-    private function validateEmail(string $email): ?array
+    private function validateBatch(array $emails): ?array
     {
         if ($this->validator !== null) {
-            return ($this->validator)($email);
+            // Test mode: call per-email validator and collect results
+            $results = [];
+            foreach ($emails as $email) {
+                $result = ($this->validator)($email);
+                if ($result === null) {
+                    return null;
+                }
+                $results[$email] = $result;
+            }
+            return $results;
         }
 
-        return ZeroBounce::validate($email);
+        return ZeroBounce::validateBatch($emails);
     }
 }

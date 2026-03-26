@@ -25,8 +25,11 @@ use JanDev\EmailSystem\Support\CampaignFilterBuilder;
  */
 class ZeroBounce
 {
-    private const API_URL     = 'https://api.zerobounce.net/v2/validate';
-    private const CREDITS_URL = 'https://api.zerobounce.net/v2/getcredits';
+    private const API_URL       = 'https://api.zerobounce.net/v2/validate';
+    private const BATCH_API_URL = 'https://api.zerobounce.net/v2/validatebatch';
+    private const CREDITS_URL   = 'https://api.zerobounce.net/v2/getcredits';
+
+    public const BATCH_SIZE = 200;
 
     public const STATUS_UNVERIFIED = 'unverified';
     public const STATUS_VALID      = 'valid';
@@ -102,6 +105,81 @@ class ZeroBounce
     }
 
     /**
+     * Validate a batch of email addresses via ZeroBounce Batch API v2.
+     * Max 200 emails per call. Returns results keyed by email address.
+     *
+     * @param  string[]    $emails  Array of email addresses (max 200)
+     * @param  Client|null $client  Guzzle client (injectable for testing)
+     * @return array<string, array{status: string, sub_status: string|null}>|null  Returns null on API failure
+     */
+    public static function validateBatch(array $emails, ?Client $client = null): ?array
+    {
+        if (empty($emails)) {
+            return [];
+        }
+
+        $apiKey = config('email-system.zerobounce.api_key');
+        if (!$apiKey) {
+            Log::channel('queue')->warning('ZeroBounce: API key not configured');
+            return null;
+        }
+
+        $client = $client ?? self::buildClient(90, 10);
+
+        $emailBatch = array_map(fn (string $email) => [
+            'email_address' => $email,
+            'ip_address'    => '',
+        ], array_values($emails));
+
+        try {
+            $response = $client->post(self::BATCH_API_URL, [
+                'json' => [
+                    'api_key'     => $apiKey,
+                    'email_batch' => $emailBatch,
+                ],
+            ]);
+
+            $body = json_decode($response->getBody()->getContents(), true);
+
+            if (!empty($body['errors'])) {
+                Log::channel('queue')->error('ZeroBounce batch: API errors: ' . json_encode($body['errors']));
+                return null;
+            }
+
+            if (!isset($body['email_batch']) || !is_array($body['email_batch'])) {
+                Log::channel('queue')->error('ZeroBounce batch: Invalid response structure');
+                return null;
+            }
+
+            $results = [];
+            foreach ($body['email_batch'] as $item) {
+                $email          = $item['address'] ?? '';
+                $originalStatus = strtolower($item['status'] ?? '');
+                $status         = self::mapStatus($originalStatus);
+                $rawSubStatus   = $item['sub_status'] ?? '';
+                $subStatus      = (!empty($rawSubStatus)) ? $rawSubStatus : null;
+
+                if ($subStatus === null && $originalStatus !== $status) {
+                    $subStatus = $originalStatus;
+                }
+
+                $results[$email] = [
+                    'status'     => $status,
+                    'sub_status' => $subStatus,
+                ];
+            }
+
+            Log::channel('queue')->info('ZeroBounce batch: Validated ' . count($results) . ' emails');
+
+            return $results;
+
+        } catch (\Throwable $e) {
+            Log::channel('queue')->error('ZeroBounce batch: API error: ' . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
      * Get the current API credit balance.
      *
      * @param  Client|null $client Guzzle client (injectable for testing)
@@ -172,7 +250,7 @@ class ZeroBounce
         array $customFieldFilters = [],
         ?callable $validator = null,
     ): array {
-        $validate = $validator ?? fn (string $email) => self::validate($email);
+        $batchValidate = $validator ?? fn (array $emails) => self::validateBatch($emails);
 
         // Normalize NULL statuses so the chunk query below picks them up
         DB::table('audience_users')
@@ -195,48 +273,51 @@ class ZeroBounce
 
         CampaignFilterBuilder::applyFilters($query, $customFieldFilters);
 
-        $query->chunkById(100, function ($users) use (
+        $query->chunkById(self::BATCH_SIZE, function ($users) use (
             &$verified, &$skipped, &$errors, &$consecutiveErrors, &$aborted,
-            $groupId, $validate
+            $groupId, $batchValidate
         ) {
             if ($aborted) {
                 return false;
             }
 
-            foreach ($users as $user) {
-                $result = $validate($user->email);
+            $emails = $users->pluck('email')->toArray();
+            $results = $batchValidate($emails);
 
-                if ($result === null) {
-                    $errors++;
-                    $consecutiveErrors++;
-                    $skipped++;
+            if ($results === null) {
+                $errors += count($emails);
+                $skipped += count($emails);
+                $consecutiveErrors++;
 
-                    if ($consecutiveErrors >= 10) {
-                        Log::channel('queue')->error(
-                            "ZeroBounce::verifyAudienceGroup: Aborting — 10 consecutive API failures. " .
-                            "GroupId={$groupId}"
-                        );
-                        $aborted = true;
-                        return false;
-                    }
-
-                    continue;
+                if ($consecutiveErrors >= 3) {
+                    Log::channel('queue')->error(
+                        "ZeroBounce::verifyAudienceGroup: Aborting — 3 consecutive batch failures. GroupId={$groupId}"
+                    );
+                    $aborted = true;
+                    return false;
                 }
 
-                $consecutiveErrors = 0;
+                return;
+            }
+
+            $consecutiveErrors = 0;
+            $now = Carbon::now();
+
+            foreach ($users as $user) {
+                $result = $results[$user->email] ?? null;
+
+                if ($result === null) {
+                    $skipped++;
+                    continue;
+                }
 
                 $user->update([
                     'zerobounce_status'     => $result['status'],
                     'zerobounce_sub_status' => $result['sub_status'],
-                    'zerobounce_checked_at' => Carbon::now(),
+                    'zerobounce_checked_at' => $now,
                 ]);
 
                 $verified++;
-
-                $delayMs = config('email-system.zerobounce.delay_ms', 200);
-                if ($delayMs > 0) {
-                    usleep($delayMs * 1000);
-                }
             }
         });
 
