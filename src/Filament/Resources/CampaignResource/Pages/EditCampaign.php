@@ -145,6 +145,23 @@ class EditCampaign extends EditRecord
     protected function dispatchCampaign(): void
     {
         $fresh = $this->record->fresh();
+
+        // Atomic status guard: only proceed if campaign is still 'new'
+        // This prevents double-click / race condition from dispatching multiple jobs
+        $updated = Campaign::where('id', $fresh->id)
+            ->where('status', 'new')
+            ->update(['status' => 'sending', 'sent_at' => now()]);
+
+        if ($updated === 0) {
+            Notification::make()
+                ->title(__('Campaign already dispatched'))
+                ->body(__('This campaign has already been sent or is currently sending.'))
+                ->warning()
+                ->send();
+            $this->redirect($this->getResource()::getUrl('index'));
+            return;
+        }
+
         $groupIds = $fresh->audience_group_ids ?? [];
         $filters = $fresh->custom_field_filters ?? [];
 
@@ -155,6 +172,8 @@ class EditCampaign extends EditRecord
         $missing = collect($groupIds)->filter(fn ($id) => !$groups->has($id))->count();
 
         if ($missing > 0) {
+            // Revert status back to 'new' since we can't send
+            $this->record->update(['status' => 'new', 'sent_at' => null]);
             Notification::make()
                 ->title(__('Some lists were deleted'))
                 ->body(__(':count selected list(s) no longer exist. Remove them from step 2 and try again.', ['count' => $missing]))
@@ -173,11 +192,7 @@ class EditCampaign extends EditRecord
             $total += $query->count();
         }
 
-        $this->record->update([
-            'status'           => 'sending',
-            'total_recipients' => $total,
-            'sent_at'          => now(),
-        ]);
+        $this->record->update(['total_recipients' => $total]);
 
         DispatchCampaign::dispatch($this->record);
 

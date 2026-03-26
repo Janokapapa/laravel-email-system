@@ -8,18 +8,20 @@ use JanDev\EmailSystem\Models\EmailAudienceGroup;
 use JanDev\EmailSystem\Services\ZeroBounce;
 use JanDev\EmailSystem\Support\CampaignFilterBuilder;
 use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
 
-class DispatchCampaign implements ShouldQueue
+class DispatchCampaign implements ShouldQueue, ShouldBeUnique
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public int $tries = 1;
     public int $timeout = 3600; // 1 hour max for large campaigns
+    public int $uniqueFor = 3600; // Prevent duplicate jobs for 1 hour
 
     protected Campaign $campaign;
 
@@ -36,12 +38,29 @@ class DispatchCampaign implements ShouldQueue
         $this->zeroBounceValidator = $zeroBounceValidator;
     }
 
+    /**
+     * Unique ID for ShouldBeUnique — one job per campaign.
+     */
+    public function uniqueId(): string
+    {
+        return 'dispatch-campaign-' . $this->campaign->id;
+    }
+
     public function handle(): void
     {
         $campaign = $this->campaign->fresh();
 
         if (!$campaign) {
             Log::channel('queue')->warning("DispatchCampaign: Campaign {$this->campaign->id} not found");
+            return;
+        }
+
+        // Status guard: only process if campaign is in 'sending' state.
+        // If another job already completed or failed this campaign, bail out.
+        if ($campaign->status !== 'sending') {
+            Log::channel('queue')->warning(
+                "DispatchCampaign: Campaign {$campaign->id} status is '{$campaign->status}', expected 'sending'. Skipping duplicate job."
+            );
             return;
         }
 

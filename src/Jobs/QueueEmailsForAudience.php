@@ -221,12 +221,12 @@ class QueueEmailsForAudience implements ShouldQueue
                 }),
             $this->customFieldFilters
         )->chunkById(1000, function ($users) use (
-                $template, $audienceGroup, $sender, $additionalBlockedEmails, $alreadySentEmails,
+                $template, $audienceGroup, $sender, $additionalBlockedEmails, &$alreadySentEmails,
                 &$batchData, &$queuedCount, &$skippedCount, &$providerSkippedCount, &$alreadySentSkippedCount, $batchSize,
                 $initialStatus, $tracker, $contentPool, $contentType, $senderDisplayName, $replyTo
             ) {
                 foreach ($users as $user) {
-                    // Skip if already sent/queued for this template
+                    // Skip if already sent/queued for this template/campaign
                     if (isset($alreadySentEmails[$user->email])) {
                         $alreadySentSkippedCount++;
                         continue;
@@ -275,6 +275,10 @@ class QueueEmailsForAudience implements ShouldQueue
                         'updated_at'              => now(),
                     ];
                     $queuedCount++;
+
+                    // Track in-memory to prevent duplicates within the same job run
+                    // (e.g. duplicate subscriber rows in the same audience group)
+                    $alreadySentEmails[$user->email] = true;
 
                     // Insert in batches
                     if (count($batchData) >= $batchSize) {

@@ -165,8 +165,10 @@ class PmtaSync extends Command
 
     /**
      * Move pending EML files from failed servers to their configured fallback.
-     * Rewrites x-virtual-mta header to match the fallback server's virtual_mta.
-     * Does NOT rewrite x-sender (VERP bounce domain is tied to DNS records).
+     * Rewrites headers to match the fallback server:
+     * - x-virtual-mta → fallback server's virtual_mta
+     * - x-sender → VERP bounce address rebuilt with fallback server's bounce_domain
+     *   (if fallback has no bounce_domain, uses plain from address extracted from From header)
      */
     protected function handleFailover(string $spoolBase, array $failedServers): void
     {
@@ -207,20 +209,27 @@ class PmtaSync extends Command
             $files = glob($srcDir . '/email_*') ?: [];
             $files = array_filter($files, 'is_file');
             $fallbackVmta = $fallbackConfig['virtual_mta'] ?? 'all';
+            $fallbackBounceDomain = $fallbackConfig['bounce_domain'] ?? '';
             $movedCount = 0;
 
             foreach ($files as $file) {
-                // Rewrite x-virtual-mta header to match fallback server
                 $content = file_get_contents($file);
-                if ($content !== false) {
-                    $content = preg_replace(
-                        '/^x-virtual-mta: .+$/m',
-                        'x-virtual-mta: ' . $fallbackVmta,
-                        $content,
-                        1
-                    );
-                    file_put_contents($file, $content);
+                if ($content === false) {
+                    continue;
                 }
+
+                // Rewrite x-virtual-mta header to match fallback server
+                $content = preg_replace(
+                    '/^x-virtual-mta: .+$/m',
+                    'x-virtual-mta: ' . $fallbackVmta,
+                    $content,
+                    1
+                );
+
+                // Rewrite x-sender (VERP bounce address) to match fallback server's bounce_domain
+                $content = $this->rewriteVerpSender($content, $fallbackBounceDomain);
+
+                file_put_contents($file, $content);
 
                 if (@rename($file, $dstDir . '/' . basename($file))) {
                     $movedCount++;
@@ -231,6 +240,46 @@ class PmtaSync extends Command
                 Log::channel('queue')->info("PmtaSync: failover {$failedName} → {$fallbackName}, moved {$movedCount} files");
             }
         }
+    }
+
+    /**
+     * Rewrite the x-sender VERP bounce address for a new bounce_domain.
+     *
+     * VERP format: bounce-{id}-{fromDomain}@{bounceDomain}
+     * If fallback has a bounce_domain: rebuild VERP with new domain.
+     * If fallback has no bounce_domain: extract From address and use that as plain sender.
+     */
+    protected function rewriteVerpSender(string $content, string $fallbackBounceDomain): string
+    {
+        if ($fallbackBounceDomain !== '') {
+            // Rebuild VERP with fallback's bounce domain, preserving the id and from-domain parts
+            return preg_replace(
+                '/^x-sender: bounce-(\d+)-([^@]+)@.+$/m',
+                'x-sender: bounce-$1-$2@' . $fallbackBounceDomain,
+                $content,
+                1
+            );
+        }
+
+        // Fallback has no bounce_domain → use plain from address (no VERP)
+        // Extract from address from the From header
+        $fromAddress = null;
+        if (preg_match('/^From: .*?<([^>]+)>/m', $content, $m)) {
+            $fromAddress = $m[1];
+        } elseif (preg_match('/^From: (\S+@\S+)/m', $content, $m)) {
+            $fromAddress = $m[1];
+        }
+
+        if ($fromAddress) {
+            return preg_replace(
+                '/^x-sender: .+$/m',
+                'x-sender: ' . $fromAddress,
+                $content,
+                1
+            );
+        }
+
+        return $content;
     }
 
     /**
@@ -331,6 +380,10 @@ class PmtaSync extends Command
             $cm,
             $port
         );
+
+        // Step 0: Clean orphaned files from remote tmp/ that don't match local outgoing.
+        // Prevents duplicates from partial rsync transfers of previous failed runs.
+        $this->cleanOrphanedRemoteFiles($serverName, $localFiles, $dest, $key, $cm, $port, $tmp);
 
         // Step A: rsync the server subdirectory (NOT parent outgoing/) to remote tmp/
         $rsyncCmd = sprintf(
@@ -534,6 +587,61 @@ class PmtaSync extends Command
         }
 
         Log::channel('queue')->info("PmtaSync: '{$label}' complete — {$okCount} marked sent");
+    }
+
+    /**
+     * Remove orphaned email_* files from remote tmp/ that don't exist in local outgoing.
+     * These are leftovers from partial rsync transfers of previous failed runs.
+     * Without this cleanup, doSshMvAndMark would move them to pickup → duplicate sends.
+     */
+    protected function cleanOrphanedRemoteFiles(
+        string $serverName,
+        array $localFiles,
+        string $dest,
+        string $key,
+        string $cm,
+        int $port,
+        string $tmp
+    ): void {
+        $sshBase = sprintf(
+            'ssh -i %s -o StrictHostKeyChecking=accept-new -o BatchMode=yes -o IdentitiesOnly=yes %s -o ConnectTimeout=10 -p %d -T %s',
+            escapeshellarg($key),
+            $cm,
+            $port,
+            escapeshellarg($dest)
+        );
+
+        // List remote tmp/ files
+        $listCmd = $sshBase . ' ' . escapeshellarg("ls {$tmp}/ 2>/dev/null | grep '^email_'");
+        $remoteFiles = [];
+        $listCode = 0;
+        $this->executeCommand($listCmd, $remoteFiles, $listCode);
+        $remoteFiles = array_filter(array_map('trim', $remoteFiles));
+
+        if (empty($remoteFiles)) {
+            return;
+        }
+
+        // Build set of local basenames we're about to sync
+        $localBasenames = array_flip(array_map('basename', $localFiles));
+
+        // Find orphans: files on remote that we don't have locally
+        $orphans = array_filter($remoteFiles, fn ($f) => !isset($localBasenames[$f]));
+
+        if (empty($orphans)) {
+            return;
+        }
+
+        // Delete orphaned files from remote tmp/
+        $rmList = implode(' ', array_map(fn ($f) => escapeshellarg("{$tmp}/{$f}"), $orphans));
+        $rmCmd = $sshBase . ' ' . escapeshellarg("rm -f {$rmList}");
+        $rmOut = [];
+        $rmCode = 0;
+        $this->executeCommand($rmCmd, $rmOut, $rmCode);
+
+        Log::channel('queue')->info(
+            "PmtaSync: cleaned " . count($orphans) . " orphaned files from remote {$tmp}/ for '{$serverName}'"
+        );
     }
 
     /**
