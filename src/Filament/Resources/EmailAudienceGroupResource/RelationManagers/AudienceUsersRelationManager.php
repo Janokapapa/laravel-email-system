@@ -367,6 +367,49 @@ class AudienceUsersRelationManager extends RelationManager
                         }
                     }),
 
+                Action::make('removeBounceStatus')
+                    ->label(__('Remove Bounce Status'))
+                    ->icon('heroicon-o-arrow-path')
+                    ->color('warning')
+                    ->requiresConfirmation()
+                    ->modalHeading(__('Remove All Bounce Status'))
+                    ->modalDescription(function () {
+                        $groupId = $this->getOwnerRecord()->id;
+                        $bouncedCount = AudienceUser::where('email_audience_group_id', $groupId)
+                            ->where(function ($q) {
+                                $q->where('bounced', true)
+                                    ->orWhere('zerobounce_status', 'bounced');
+                            })
+                            ->count();
+
+                        return __('This will clear bounce status for :count subscriber(s) and reset their ZeroBounce status to unverified so they can be re-verified.', ['count' => $bouncedCount]);
+                    })
+                    ->action(function () {
+                        $groupId = $this->getOwnerRecord()->id;
+
+                        $affected = AudienceUser::where('email_audience_group_id', $groupId)
+                            ->where(function ($q) {
+                                $q->where('bounced', true)
+                                    ->orWhere('zerobounce_status', 'bounced');
+                            })
+                            ->update([
+                                'bounced' => false,
+                                'bounce_type' => null,
+                                'bounce_reason' => null,
+                                'bounced_at' => null,
+                                'is_active' => true,
+                                'zerobounce_status' => 'unverified',
+                                'zerobounce_sub_status' => null,
+                                'zerobounce_checked_at' => null,
+                            ]);
+
+                        Notification::make()
+                            ->title(__('Bounce Status Removed'))
+                            ->body(__(':count subscriber(s) updated. You can now re-verify them with ZeroBounce.', ['count' => $affected]))
+                            ->success()
+                            ->send();
+                    }),
+
                 // Upload CSV with column mapping
                 Action::make('uploadCsv')
                     ->label(__('Upload CSV'))

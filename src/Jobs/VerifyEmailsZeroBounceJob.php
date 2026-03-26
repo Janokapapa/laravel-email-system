@@ -87,43 +87,63 @@ class VerifyEmailsZeroBounceJob implements ShouldQueue, ShouldBeUnique
                     }
 
                     foreach ($users as $user) {
-                        $result = $this->validateEmail($user->email);
+                        // Check if this email was already verified in another list
+                        $existing = AudienceUser::where('email', $user->email)
+                            ->where('id', '!=', $user->id)
+                            ->whereNotNull('zerobounce_checked_at')
+                            ->whereNotIn('zerobounce_status', ['unverified', 'bounced'])
+                            ->first();
 
-                        if ($result === null) {
-                            $errors++;
-                            $consecutiveErrors++;
-                            $skipped++;
-                            $tracker->incrementFailed();
-                            $tracker->incrementProgress();
+                        if ($existing) {
+                            $result = [
+                                'status'     => $existing->zerobounce_status,
+                                'sub_status' => $existing->zerobounce_sub_status,
+                            ];
+                        } else {
+                            $result = $this->validateEmail($user->email);
 
-                            if ($consecutiveErrors >= 10) {
-                                Log::channel('queue')->error(
-                                    "VerifyEmailsZeroBounceJob: Aborting — 10 consecutive API failures. " .
-                                    "ZeroBounce API may be down. GroupId={$this->groupId}"
-                                );
-                                $aborted = true;
-                                return false; // Stop chunk
+                            if ($result === null) {
+                                $errors++;
+                                $consecutiveErrors++;
+                                $skipped++;
+                                $tracker->incrementFailed();
+                                $tracker->incrementProgress();
+
+                                if ($consecutiveErrors >= 10) {
+                                    Log::channel('queue')->error(
+                                        "VerifyEmailsZeroBounceJob: Aborting — 10 consecutive API failures. " .
+                                        "ZeroBounce API may be down. GroupId={$this->groupId}"
+                                    );
+                                    $aborted = true;
+                                    return false; // Stop chunk
+                                }
+
+                                continue;
                             }
 
-                            continue;
+                            // Successful API call — reset consecutive error counter
+                            $consecutiveErrors = 0;
+
+                            $delayMs = config('email-system.zerobounce.delay_ms', 200);
+                            if ($delayMs > 0) {
+                                usleep($delayMs * 1000);
+                            }
                         }
 
-                        // Successful API call — reset consecutive error counter
-                        $consecutiveErrors = 0;
+                        $now = Carbon::now();
 
-                        $user->update([
-                            'zerobounce_status'      => $result['status'],
-                            'zerobounce_sub_status'  => $result['sub_status'],
-                            'zerobounce_checked_at'  => Carbon::now(),
-                        ]);
+                        // Update all lists where this email is unverified
+                        AudienceUser::where('email', $user->email)
+                            ->where('bounced', false)
+                            ->where('zerobounce_status', 'unverified')
+                            ->update([
+                                'zerobounce_status'      => $result['status'],
+                                'zerobounce_sub_status'  => $result['sub_status'],
+                                'zerobounce_checked_at'  => $now,
+                            ]);
 
                         $verified++;
                         $tracker->incrementProgress();
-
-                        $delayMs = config('email-system.zerobounce.delay_ms', 200);
-                        if ($delayMs > 0) {
-                            usleep($delayMs * 1000);
-                        }
                     }
 
                     Log::channel('queue')->info(
