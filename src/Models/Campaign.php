@@ -90,12 +90,21 @@ class Campaign extends Model
 
         $processed = $this->sent_count + $this->failed_count;
 
+        // Check if there are still emails pending processing (queued/spooled)
+        $pending = EmailLog::where('campaign_id', $this->id)
+            ->whereIn('status', ['queued', 'spooled'])
+            ->exists();
+
         if ($this->total_recipients === 0) {
             $this->status = 'sent';
         } elseif ($this->failed_count >= $this->total_recipients) {
             $this->status = 'failed';
         } elseif ($this->sent_count >= $this->total_recipients) {
             $this->status = 'sent';
+        } elseif (!$pending && $processed > 0 && $this->status === 'sending') {
+            // All email_logs processed (none queued/spooled), but total_recipients
+            // may be higher due to pre-send filtering (ZeroBounce, bounces, etc.)
+            $this->status = $this->failed_count > 0 ? 'partial' : 'sent';
         } elseif ($this->failed_count > 0 && $this->sent_count > 0) {
             $this->status = 'partial';
         } elseif ($processed < $this->total_recipients) {
