@@ -119,6 +119,8 @@ class SendQueuedEmail implements ShouldQueue
     {
         DB::transaction(function () use ($senderConfig) {
             $unsubscribeUrl = $this->generateUnsubscribeUrl();
+            // 'both' (multipart) falls into the HTML branch here; NewsletterMail handles
+            // the multipart/alternative MIME output when content_type is 'both'.
             $isPlainText = ($this->emailLog->content_type ?? 'html') === 'text';
 
             // Process message in-memory (not persisted)
@@ -191,12 +193,10 @@ class SendQueuedEmail implements ShouldQueue
     {
         DB::transaction(function () use ($senderConfig) {
             $unsubscribeUrl = $this->generateUnsubscribeUrl();
-            $isPlainText = ($this->emailLog->content_type ?? 'html') === 'text';
+            $contentType = $this->emailLog->content_type ?? 'html';
+            $isPlainText = $contentType === 'text';
 
-            $mgClient = Mailgun::create(
-                $senderConfig['mailgun_secret'] ?? config('email-system.mailgun.secret'),
-                $senderConfig['mailgun_endpoint'] ?? config('email-system.mailgun.endpoint', 'https://api.eu.mailgun.net')
-            );
+            $mgClient = $this->createMailgunClient($senderConfig);
 
             $domain = $senderConfig['mailgun_domain'] ?? config('email-system.mailgun.domain');
 
@@ -218,7 +218,7 @@ class SendQueuedEmail implements ShouldQueue
                     'text' => $messageContent,
                 ];
             } else {
-                // HTML: full processing with layout
+                // HTML or both: full processing with layout
                 $messageContent = PmtaSpooler::resolveRelativeUrls($messageContent);
                 $messageContent = PmtaSpooler::replaceUnsubscribeLinks($messageContent, $unsubscribeUrl);
                 if ($senderConfig['track_clicks'] ?? true) {
@@ -243,6 +243,12 @@ class SendQueuedEmail implements ShouldQueue
                     'subject' => $this->emailLog->subject,
                     'html' => $htmlContent,
                 ];
+
+                // Multipart/alternative: add plain text part when content_type is 'both'.
+                // strip_tags applied to processed $messageContent (after URL/unsubscribe replacement).
+                if ($contentType === 'both') {
+                    $params['text'] = strip_tags($messageContent);
+                }
             }
 
             if ($replyTo) {
@@ -311,6 +317,14 @@ class SendQueuedEmail implements ShouldQueue
 
         $campaign->refreshCounts();
         $campaign->updateStatusFromCounts();
+    }
+
+    protected function createMailgunClient(?array $senderConfig): Mailgun
+    {
+        return Mailgun::create(
+            $senderConfig['mailgun_secret'] ?? config('email-system.mailgun.secret'),
+            $senderConfig['mailgun_endpoint'] ?? config('email-system.mailgun.endpoint', 'https://api.eu.mailgun.net')
+        );
     }
 
     public function failed(\Throwable $exception): void

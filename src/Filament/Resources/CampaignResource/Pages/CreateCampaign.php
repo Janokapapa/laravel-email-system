@@ -62,7 +62,7 @@ class CreateCampaign extends CreateRecord
                 'custom_field_filters' => $draft->custom_field_filters ?? [],
                 'skip_providers'       => $draft->skip_providers ?? [],
                 'email_template_id'  => $draft->email_template_id,
-                'content_type'       => $draft->content_type ?? 'html',
+                'content_type'       => $draft->content_type ?? 'both',
                 'subject'            => $draft->subject,
                 'body'               => $draft->body,
                 'variations'         => $draft->variations ?? [],
@@ -259,10 +259,11 @@ class CreateCampaign extends CreateRecord
                     Select::make('content_type')
                         ->label(__('Content Type'))
                         ->options([
+                            'both' => __('Both (HTML + Text)'),
                             'html' => __('HTML'),
                             'text' => __('Plain Text'),
                         ])
-                        ->default('html')
+                        ->default('both')
                         ->required()
                         ->live(),
 
@@ -382,7 +383,7 @@ class CreateCampaign extends CreateRecord
                 'sender_display_name' => $data['sender_display_name'] ?? null,
                 'reply_to'           => $data['reply_to'] ?? null,
                 'email_template_id'  => $data['email_template_id'] ?? null,
-                'content_type'       => $data['content_type'] ?? 'html',
+                'content_type'       => $data['content_type'] ?? 'both',
                 'subject'            => $data['subject'] ?? null,
                 'body'               => $data['body'] ?? null,
                 'variations'         => $data['variations'] ?? [],

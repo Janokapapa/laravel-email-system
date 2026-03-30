@@ -88,6 +88,8 @@ class PmtaSpooler
         $subject = '=?UTF-8?B?' . base64_encode($emailLog->subject) . '?=';
         $fromHeader = $fromName ? "{$fromName} <{$fromAddress}>" : $fromAddress;
 
+        // 'both' (multipart) and 'html' both fall into the else branch below,
+        // which already produces multipart/alternative with HTML + plain text parts.
         $isPlainText = ($emailLog->content_type ?? 'html') === 'text';
 
         // List-Unsubscribe headers (RFC 2369 / RFC 8058) — improves deliverability

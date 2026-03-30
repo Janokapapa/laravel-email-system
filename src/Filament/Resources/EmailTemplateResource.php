@@ -54,10 +54,11 @@ class EmailTemplateResource extends Resource
             Select::make('content_type')
                 ->label(__('Content Type'))
                 ->options([
+                    'both' => __('Both (HTML + Text)'),
                     'html' => __('HTML'),
                     'text' => __('Plain Text'),
                 ])
-                ->default('html')
+                ->default('both')
                 ->required()
                 ->live(),
 

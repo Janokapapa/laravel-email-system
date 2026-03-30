@@ -36,9 +36,9 @@ class NewsletterMail extends Mailable
 
     public function content(): Content
     {
-        $isPlainText = ($this->emailLog->content_type ?? 'html') === 'text';
+        $contentType = $this->emailLog->content_type ?? 'html';
 
-        if ($isPlainText) {
+        if ($contentType === 'text') {
             return new Content(
                 text: 'email-system::newsletter-text',
                 with: [
@@ -48,14 +48,32 @@ class NewsletterMail extends Mailable
             );
         }
 
+        if ($contentType === 'both') {
+            // Multipart/alternative: HTML part + plain text fallback.
+            // strip_tags() is applied to the raw message body (not the layout-rendered HTML)
+            // to avoid including layout chrome (app name, footer) in the text part.
+            return new Content(
+                view: 'email-system::newsletter',
+                text: 'email-system::newsletter-text-multipart',
+                with: [
+                    'emailLog'       => $this->emailLog,
+                    'subject'        => $this->emailLog->subject,
+                    'messageContent' => $this->emailLog->message,
+                    'textContent'    => strip_tags((string) $this->emailLog->message),
+                    'unsubscribeUrl' => $this->unsubscribeUrl,
+                    'trackOpens'     => $this->senderConfig['track_opens'] ?? false,
+                ],
+            );
+        }
+
         return new Content(
             view: 'email-system::newsletter',
             with: [
-                'emailLog' => $this->emailLog,
-                'subject' => $this->emailLog->subject,
+                'emailLog'       => $this->emailLog,
+                'subject'        => $this->emailLog->subject,
                 'messageContent' => $this->emailLog->message,
                 'unsubscribeUrl' => $this->unsubscribeUrl,
-                'trackOpens' => $this->senderConfig['track_opens'] ?? false,
+                'trackOpens'     => $this->senderConfig['track_opens'] ?? false,
             ],
         );
     }

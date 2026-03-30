@@ -96,6 +96,7 @@ class EditEmailTemplate extends EditRecord
                     'sender'            => $senderAddress,
                     'sender_name'       => $senderName,
                     'variation_id'      => $selectedVariationId,
+                    'content_type'      => $this->record->content_type ?? 'both',
                     'status'            => 'queued',
                 ]);
 

@@ -198,6 +198,8 @@ class SendQueuedEmails implements ShouldQueue
     protected function sendSingleViaSmtp(EmailLog $emailLog, ?array $senderConfig = null): void
     {
         $unsubscribeUrl = $this->generateUnsubscribeUrl($emailLog);
+        // 'both' (multipart) falls into the HTML branch here; NewsletterMail handles
+        // the multipart/alternative MIME output when content_type is 'both'.
         $isPlainText = ($emailLog->content_type ?? 'html') === 'text';
 
         // Process message in-memory (not persisted)
@@ -312,6 +314,8 @@ class SendQueuedEmails implements ShouldQueue
             ];
         }
 
+        $contentType = $firstEmail->content_type ?? 'html';
+
         // Process message content: resolve relative URLs + unsubscribe placeholders
         $messageContent = (string) $firstEmail->message;
         $messageContent = PmtaSpooler::resolveRelativeUrls($messageContent);
@@ -332,6 +336,13 @@ class SendQueuedEmails implements ShouldQueue
             'html' => $htmlContent,
             'recipient-variables' => json_encode($recipientVariables),
         ];
+
+        // Multipart/alternative: add plain text part when content_type is 'both'.
+        // strip_tags is applied to processed $messageContent (after URL/unsubscribe replacement)
+        // so that %recipient.unsubscribe_url% appears correctly in the text part.
+        if ($contentType === 'both') {
+            $params['text'] = strip_tags($messageContent);
+        }
 
         if ($replyToAddress) {
             $params['h:Reply-To'] = $replyToAddress;
