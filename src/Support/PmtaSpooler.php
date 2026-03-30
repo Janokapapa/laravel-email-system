@@ -102,6 +102,14 @@ class PmtaSpooler
             // Plain text mode: single text/plain part, no HTML wrapping
             $rawText = (string) $emailLog->message;
 
+            // Safety net: strip HTML tags if content contains markup (e.g. switched from HTML mode)
+            if (preg_match('/<[a-z][\s\S]*>/i', $rawText)) {
+                $rawText = preg_replace('/<br\s*\/?>/i', "\n", $rawText);
+                $rawText = preg_replace('/<\/(p|div|h[1-6])>/i', "\n\n", $rawText);
+                $rawText = html_entity_decode(strip_tags($rawText), ENT_QUOTES, 'UTF-8');
+                $rawText = trim($rawText);
+            }
+
             // Replace unsubscribe placeholders as plain text URLs
             if ($unsubscribeUrl) {
                 $rawText = preg_replace('/\{\{unsubscribe=(.+?)\}\}/', '$1: ' . $unsubscribeUrl, $rawText);

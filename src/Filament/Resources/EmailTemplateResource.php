@@ -4,16 +4,19 @@ namespace JanDev\EmailSystem\Filament\Resources;
 
 use JanDev\EmailSystem\Filament\Resources\EmailTemplateResource\Pages;
 use JanDev\EmailSystem\Models\EmailTemplate;
+use JanDev\EmailSystem\Support\ContentTypeConverter;
 use Filament\Actions\DeleteAction;
 use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Field;
+use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Utilities\Get;
+use Filament\Schemas\Components\Utilities\Set;
 use Filament\Tables\Table;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Actions\Action;
@@ -60,7 +63,11 @@ class EmailTemplateResource extends Resource
                 ])
                 ->default('both')
                 ->required()
-                ->live(),
+                ->live()
+                ->afterStateUpdated(fn (Get $get, Set $set, ?string $old, ?string $state) => ContentTypeConverter::handleContentTypeSwitch($get, $set, $old, $state)),
+
+            Hidden::make('_html_body_cache')->dehydrated(false),
+            Hidden::make('_text_body_cache')->dehydrated(false),
 
             TextInput::make('subject')
                 ->required()
@@ -104,6 +111,9 @@ class EmailTemplateResource extends Resource
                                 ->columnSpanFull()
                                 ->dehydrated(true)
                                 ->dehydrateStateUsing(fn ($state) => $state),
+
+                            Hidden::make('_html_body_cache')->dehydrated(false),
+                            Hidden::make('_text_body_cache')->dehydrated(false),
                         ])
                         ->columns(1)
                         ->reorderable()

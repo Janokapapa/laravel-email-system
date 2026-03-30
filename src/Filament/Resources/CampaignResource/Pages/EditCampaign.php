@@ -12,6 +12,7 @@ use JanDev\EmailSystem\Models\EmailLog;
 use JanDev\EmailSystem\Models\EmailTemplate;
 use JanDev\EmailSystem\Services\ZeroBounce;
 use JanDev\EmailSystem\Support\CampaignFilterBuilder;
+use JanDev\EmailSystem\Support\ContentTypeConverter;
 use JanDev\EmailSystem\Support\SenderResolver;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -19,6 +20,7 @@ use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
 use Filament\Forms\Components\CheckboxList;
 use Filament\Forms\Components\Field;
+use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
@@ -357,7 +359,11 @@ class EditCampaign extends EditRecord
                         ])
                         ->default('both')
                         ->required()
-                        ->live(),
+                        ->live()
+                        ->afterStateUpdated(fn (Get $get, Set $set, ?string $old, ?string $state) => ContentTypeConverter::handleContentTypeSwitch($get, $set, $old, $state)),
+
+                    Hidden::make('_html_body_cache')->dehydrated(false),
+                    Hidden::make('_text_body_cache')->dehydrated(false),
 
                     TextInput::make('subject')
                         ->label(__('Subject'))
@@ -400,6 +406,9 @@ class EditCampaign extends EditRecord
                                         ->columnSpanFull()
                                         ->dehydrated(true)
                                         ->dehydrateStateUsing(fn ($state) => $state),
+
+                                    Hidden::make('_html_body_cache')->dehydrated(false),
+                                    Hidden::make('_text_body_cache')->dehydrated(false),
                                 ])
                                 ->columns(1)
                                 ->reorderable()
