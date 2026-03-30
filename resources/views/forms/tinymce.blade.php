@@ -10,8 +10,8 @@
     $contentType = data_get($getExtraAttributes(), 'contentType', 'html');
 @endphp
 
-{{-- wire:key forces Livewire to destroy and recreate when contentType changes --}}
-<div wire:key="body-{{ $getId() }}-{{ $contentType }}">
+{{-- wire:key forces Livewire to destroy and recreate only when switching between text/rich modes --}}
+<div wire:key="body-{{ $getId() }}-{{ $contentType === 'text' ? 'text' : 'html' }}">
 @if ($contentType === 'text')
 {{-- Plain text mode: Alpine-managed textarea with commit hook --}}
 <div class="fi-fo-field-wrp"
