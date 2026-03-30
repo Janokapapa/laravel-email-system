@@ -12,7 +12,25 @@ class ContentTypeConverter
      */
     public static function htmlToText(string $html): string
     {
-        $text = preg_replace('/<br\s*\/?>/i', "\n", $html);
+        // Convert <a href="URL">text</a> → text (URL) before stripping tags
+        $text = preg_replace_callback(
+            '/<a\b[^>]*?href\s*=\s*"([^"]*)"[^>]*>(.*?)<\/a>/is',
+            function ($m) {
+                $url = html_entity_decode($m[1], ENT_QUOTES, 'UTF-8');
+                $linkText = strip_tags($m[2]);
+                // Skip empty/anchor/mailto links, and don't duplicate if text IS the URL
+                if ($url === '' || $url === '#' || str_starts_with($url, 'mailto:')) {
+                    return $linkText;
+                }
+                if ($linkText === $url) {
+                    return $url;
+                }
+                return "{$linkText} ({$url})";
+            },
+            $html
+        );
+
+        $text = preg_replace('/<br\s*\/?>/i', "\n", $text);
         $text = preg_replace('/<\/(p|div|h[1-6])>/i', "\n\n", $text);
         $text = html_entity_decode(strip_tags($text), ENT_QUOTES, 'UTF-8');
 

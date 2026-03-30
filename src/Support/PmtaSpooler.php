@@ -104,10 +104,7 @@ class PmtaSpooler
 
             // Safety net: strip HTML tags if content contains markup (e.g. switched from HTML mode)
             if (preg_match('/<[a-z][\s\S]*>/i', $rawText)) {
-                $rawText = preg_replace('/<br\s*\/?>/i', "\n", $rawText);
-                $rawText = preg_replace('/<\/(p|div|h[1-6])>/i', "\n\n", $rawText);
-                $rawText = html_entity_decode(strip_tags($rawText), ENT_QUOTES, 'UTF-8');
-                $rawText = trim($rawText);
+                $rawText = ContentTypeConverter::htmlToText($rawText);
             }
 
             // Replace unsubscribe placeholders as plain text URLs
@@ -186,10 +183,8 @@ EOT;
             } else {
                 $rawText = self::stripUnsubscribePlaceholders($rawText);
             }
-            $rawText = preg_replace('/<br\s*\/?>/i', "\n", $rawText);
-            $rawText = preg_replace('/<\/(p|div|h[1-6])>/i', "\n\n", $rawText);
-            $rawText = html_entity_decode(strip_tags($rawText), ENT_QUOTES, 'UTF-8');
-            $textBody = quoted_printable_encode(trim($rawText));
+            $rawText = ContentTypeConverter::htmlToText($rawText);
+            $textBody = quoted_printable_encode($rawText);
 
             $eml = <<<EOT
 x-sender: {$envelopeSender}
