@@ -12,6 +12,7 @@ use JanDev\EmailSystem\Filament\Resources\BouncedEmailResource;
 use JanDev\EmailSystem\Filament\Resources\AudienceUserResource;
 use JanDev\EmailSystem\Filament\Pages\PmtaStatisticsPage;
 use JanDev\EmailSystem\Filament\Pages\PmtaServerDetailPage;
+use JanDev\EmailSystem\Filament\Widgets\AudienceGroupStatsWidget;
 use JanDev\EmailSystem\Filament\Widgets\AudienceStatsWidget;
 use JanDev\EmailSystem\Filament\Widgets\BounceStatsWidget;
 use JanDev\EmailSystem\Filament\Widgets\JobProgressWidget;
@@ -42,6 +43,7 @@ class EmailSystemPlugin implements Plugin
         ]);
 
         $panel->widgets([
+            AudienceGroupStatsWidget::class,
             AudienceStatsWidget::class,
             BounceStatsWidget::class,
             PmtaStatsWidget::class,
