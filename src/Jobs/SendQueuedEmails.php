@@ -311,7 +311,7 @@ class SendQueuedEmails implements ShouldQueue
             $recipientVariables[$email->recipient] = [
                 'id' => $email->id,
                 'unsubscribe_url' => $this->getUnsubscribeUrl($email),
-                'message_id' => '<' . bin2hex(random_bytes(16)) . '@' . $domain . '>',
+                'message_id' => bin2hex(random_bytes(16)) . '@' . $domain,
             ];
         }
 
@@ -339,10 +339,9 @@ class SendQueuedEmails implements ShouldQueue
         ];
 
         // Multipart/alternative: add plain text part when content_type is 'both'.
-        // strip_tags is applied to processed $messageContent (after URL/unsubscribe replacement)
-        // so that %recipient.unsubscribe_url% appears correctly in the text part.
+        // ContentTypeConverter handles link conversion, tag stripping, and HTML entity decoding.
         if ($contentType === 'both') {
-            $params['text'] = strip_tags($messageContent);
+            $params['text'] = \JanDev\EmailSystem\Support\ContentTypeConverter::htmlToText($messageContent);
         }
 
         // Unique Message-Id per recipient to prevent duplicate detection
