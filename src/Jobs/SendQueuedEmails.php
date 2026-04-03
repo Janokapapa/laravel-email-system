@@ -311,6 +311,7 @@ class SendQueuedEmails implements ShouldQueue
             $recipientVariables[$email->recipient] = [
                 'id' => $email->id,
                 'unsubscribe_url' => $this->getUnsubscribeUrl($email),
+                'message_id' => '<' . bin2hex(random_bytes(16)) . '@' . $domain . '>',
             ];
         }
 
@@ -343,6 +344,10 @@ class SendQueuedEmails implements ShouldQueue
         if ($contentType === 'both') {
             $params['text'] = strip_tags($messageContent);
         }
+
+        // Unique Message-Id per recipient to prevent duplicate detection
+        // on mail servers when multiple recipients share the same domain.
+        $params['h:Message-Id'] = '%recipient.message_id%';
 
         if ($replyToAddress) {
             $params['h:Reply-To'] = $replyToAddress;
