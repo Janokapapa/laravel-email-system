@@ -211,7 +211,7 @@
             @endif
 
             {{-- Clicked --}}
-            <div class="cv-stat">
+            <div class="cv-stat" @if($clickedCount > 0) wire:click="openClickedModal" style="cursor:pointer;border-radius:8px;padding:8px;margin:-8px;transition:background .15s" onmouseover="this.style.background='#f5f3ff'" onmouseout="this.style.background='transparent'" @endif>
                 <div class="cv-stat-icon" style="background:{{ $clickedCount > 0 ? '#ede9fe' : '#f3f4f6' }}">
                     <svg style="width:18px;height:18px;color:{{ $clickedCount > 0 ? '#7c3aed' : '#9ca3af' }}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path d="M6.111 11.89A5.5 5.5 0 1 1 15.501 8 .75.75 0 0 0 17 8a7 7 0 1 0-11.95 4.95.75.75 0 0 0 1.06-1.06Zm2.121-5.658a2.5 2.5 0 0 0 0 3.536.75.75 0 1 1-1.06 1.06A4 4 0 1 1 14 8a.75.75 0 0 1-1.5 0 2.5 2.5 0 0 0-4.268-1.768Zm2.534 1.279a.75.75 0 0 0-1.37.364l-.492 6.861a.75.75 0 0 0 1.204.65l1.043-.723.985 1.678a.75.75 0 1 0 1.292-.758l-.985-1.677 1.18-.406a.75.75 0 0 0-.2-1.441l-2.657-.308Z"/></svg>
                 </div>
@@ -378,4 +378,67 @@
         </div>
     @endif
 </div>
+
+{{-- Clicked emails modal --}}
+@if($this->showClickedModal)
+    <div
+        x-data="{ open: true }"
+        x-show="open"
+        x-on:keydown.escape.window="open = false; $wire.closeClickedModal()"
+        style="position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center"
+    >
+        {{-- Backdrop --}}
+        <div
+            x-on:click="open = false; $wire.closeClickedModal()"
+            style="position:absolute;inset:0;background:rgba(0,0,0,.5)"
+        ></div>
+
+        {{-- Modal --}}
+        <div style="position:relative;background:#fff;border-radius:16px;box-shadow:0 25px 50px rgba(0,0,0,.25);width:100%;max-width:600px;max-height:80vh;display:flex;flex-direction:column;margin:16px" class="dark:!bg-zinc-900">
+            {{-- Header --}}
+            <div style="padding:20px 24px;border-bottom:1px solid #f3f4f6;display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
+                <div>
+                    <h3 style="margin:0;font-size:18px;font-weight:700;color:#111827" class="dark:!text-white">{{ __('Clicked Emails') }}</h3>
+                    <p style="margin:4px 0 0;font-size:13px;color:#6b7280">{{ number_format($clickedCount) }} {{ __('recipients clicked') }}</p>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px">
+                    <button
+                        wire:click="exportClickedCsv"
+                        style="display:inline-flex;align-items:center;gap:6px;border-radius:8px;padding:8px 16px;font-size:13px;font-weight:600;border:none;background:#7c3aed;color:#fff;cursor:pointer"
+                        onmouseover="this.style.background='#6d28d9'" onmouseout="this.style.background='#7c3aed'"
+                    >
+                        <svg style="width:16px;height:16px" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path d="M10.75 2.75a.75.75 0 0 0-1.5 0v8.614L6.295 8.235a.75.75 0 1 0-1.09 1.03l4.25 4.5a.75.75 0 0 0 1.09 0l4.25-4.5a.75.75 0 0 0-1.09-1.03l-2.955 3.129V2.75Z"/><path d="M3.5 12.75a.75.75 0 0 0-1.5 0v2.5A2.75 2.75 0 0 0 4.75 18h10.5A2.75 2.75 0 0 0 18 15.25v-2.5a.75.75 0 0 0-1.5 0v2.5c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25v-2.5Z"/></svg>
+                        {{ __('Export CSV') }}
+                    </button>
+                    <button
+                        x-on:click="open = false; $wire.closeClickedModal()"
+                        style="display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:8px;border:none;background:#f3f4f6;color:#6b7280;cursor:pointer"
+                    >
+                        <svg style="width:20px;height:20px" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z"/></svg>
+                    </button>
+                </div>
+            </div>
+
+            {{-- Table --}}
+            <div style="overflow-y:auto;flex:1">
+                <table style="width:100%;border-collapse:collapse">
+                    <thead>
+                        <tr style="position:sticky;top:0;background:#f9fafb" class="dark:!bg-zinc-800">
+                            <th style="text-align:left;padding:10px 24px;font-size:12px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:.05em">{{ __('Email') }}</th>
+                            <th style="text-align:right;padding:10px 24px;font-size:12px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:.05em">{{ __('Clicked At') }}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach($this->getClickedEmails() as $log)
+                            <tr style="border-top:1px solid #f3f4f6" class="dark:!border-zinc-700">
+                                <td style="padding:10px 24px;font-size:13px;color:#111827" class="dark:!text-zinc-200">{{ $log->recipient }}</td>
+                                <td style="padding:10px 24px;font-size:13px;color:#6b7280;text-align:right">{{ $log->clicked_at ? \Carbon\Carbon::parse($log->clicked_at)->format('M j, Y H:i') : '—' }}</td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+@endif
 </x-filament-panels::page>

@@ -18,6 +18,8 @@ class ViewCampaign extends Page
 
     public $record;
 
+    public bool $showClickedModal = false;
+
     public function mount(int|string $record): void
     {
         $this->record = \JanDev\EmailSystem\Models\Campaign::findOrFail($record);
@@ -98,6 +100,44 @@ class ViewCampaign extends Page
             ->title(__('Campaign resumed'))
             ->success()
             ->send();
+    }
+
+    public function openClickedModal(): void
+    {
+        $this->showClickedModal = true;
+    }
+
+    public function closeClickedModal(): void
+    {
+        $this->showClickedModal = false;
+    }
+
+    public function getClickedEmails(): \Illuminate\Support\Collection
+    {
+        return EmailLog::where('campaign_id', $this->record->id)
+            ->where('clicked', true)
+            ->select('recipient', 'clicked_at')
+            ->orderByDesc('clicked_at')
+            ->get();
+    }
+
+    public function exportClickedCsv(): \Symfony\Component\HttpFoundation\StreamedResponse
+    {
+        $emails = $this->getClickedEmails();
+
+        return response()->streamDownload(function () use ($emails) {
+            $handle = fopen('php://output', 'w');
+            fputcsv($handle, ['Email', 'Clicked At']);
+            foreach ($emails as $log) {
+                fputcsv($handle, [
+                    $log->recipient,
+                    $log->clicked_at ? \Carbon\Carbon::parse($log->clicked_at)->format('Y-m-d H:i:s') : '',
+                ]);
+            }
+            fclose($handle);
+        }, 'campaign-' . $this->record->id . '-clicked.csv', [
+            'Content-Type' => 'text/csv',
+        ]);
     }
 
     public function retryCampaign(): void
