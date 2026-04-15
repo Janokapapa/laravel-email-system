@@ -15,12 +15,14 @@ use JanDev\EmailSystem\Support\SenderResolver;
 use JanDev\EmailSystem\Jobs\SendQueuedEmail;
 use JanDev\EmailSystem\Jobs\DispatchCampaign;
 use Filament\Forms\Components\CheckboxList;
+use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Field;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\Toggle;
 use Filament\Forms\Components\ViewField;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Utilities\Get;
@@ -366,6 +368,21 @@ class CreateCampaign extends CreateRecord
                         ->label('')
                         ->content(fn (Get $get): HtmlString => \JanDev\EmailSystem\Support\CampaignSummaryBuilder::build($get))
                         ->columnSpanFull(),
+
+                    Toggle::make('toggle_schedule_later')
+                        ->label(__('Schedule for later'))
+                        ->helperText(__('Send the campaign automatically at a future date and time'))
+                        ->default(false)
+                        ->live()
+                        ->dehydrated(false),
+
+                    DateTimePicker::make('scheduled_at')
+                        ->label(__('Schedule Date & Time'))
+                        ->minDate(fn () => now()->addMinutes(5))
+                        ->helperText(__('Times are in :tz', ['tz' => config('app.timezone')]))
+                        ->hidden(fn (Get $get) => !$get('toggle_schedule_later'))
+                        ->required(fn (Get $get) => (bool) $get('toggle_schedule_later'))
+                        ->dehydrated(false),
                 ]),
         ];
     }
@@ -426,8 +443,19 @@ class CreateCampaign extends CreateRecord
 
     protected function mutateFormDataBeforeCreate(array $data): array
     {
-        $data['status']       = 'new';
         $data['current_step'] = 5;
+
+        // Check schedule toggle from Livewire data (dehydrated=false fields aren't in $data)
+        $toggleOn = $this->data['toggle_schedule_later'] ?? false;
+        $scheduledAt = $this->data['scheduled_at'] ?? null;
+
+        if ($toggleOn && $scheduledAt) {
+            $data['status'] = 'scheduled';
+            $data['scheduled_at'] = $scheduledAt;
+        } else {
+            $data['status'] = 'new';
+        }
+
         return $data;
     }
 
@@ -446,11 +474,21 @@ class CreateCampaign extends CreateRecord
 
     protected function getCreatedNotificationTitle(): ?string
     {
+        if ($this->record->status === 'scheduled') {
+            return __('Campaign scheduled for :time', [
+                'time' => $this->record->scheduled_at->format('M j, Y H:i'),
+            ]);
+        }
+
         return __('Campaign saved');
     }
 
     protected function getRedirectUrl(): string
     {
+        if ($this->record->status === 'scheduled') {
+            return $this->getResource()::getUrl('index');
+        }
+
         return $this->getResource()::getUrl('edit', ['record' => $this->record]);
     }
 

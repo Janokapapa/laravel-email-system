@@ -19,12 +19,14 @@ use Illuminate\Support\Facades\DB;
 use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
 use Filament\Forms\Components\CheckboxList;
+use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Field;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\Toggle;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
@@ -54,8 +56,8 @@ class EditCampaign extends EditRecord
     {
         parent::mount($record);
 
-        // Redirect non-new campaigns to view page
-        if ($this->record->status !== 'new') {
+        // Redirect campaigns that can't be edited to the view page
+        if (!in_array($this->record->status, ['new', 'scheduled'])) {
             $this->redirect($this->getResource()::getUrl('view', ['record' => $this->record]));
         }
     }
@@ -64,10 +66,12 @@ class EditCampaign extends EditRecord
     {
         return [
             Action::make('send_campaign')
-                ->label(__('Send Campaign'))
+                ->label(fn (): string => ($this->data['toggle_schedule_later'] ?? false)
+                    ? __('Schedule Campaign')
+                    : __('Send Campaign'))
                 ->icon('heroicon-o-paper-airplane')
                 ->color('success')
-                ->requiresConfirmation()
+                ->requiresConfirmation(fn (): bool => !($this->data['toggle_schedule_later'] ?? false))
                 ->modalHeading(__('Send Campaign'))
                 ->modalDescription(function (): string {
                     $groupIds = $this->record->audience_group_ids ?? [];
@@ -137,23 +141,64 @@ class EditCampaign extends EditRecord
                 })
                 ->action(function (): void {
                     $this->save();
-                    $this->dispatchCampaign();
+
+                    if ($this->data['toggle_schedule_later'] ?? false) {
+                        $this->scheduleCampaign();
+                    } else {
+                        $this->dispatchCampaign();
+                    }
                 })
-                ->visible(fn (): bool => $this->record->status === 'new'),
+                ->visible(fn (): bool => in_array($this->record->status, ['new', 'scheduled'])),
 
             DeleteAction::make(),
         ];
+    }
+
+    protected function scheduleCampaign(): void
+    {
+        $scheduledAt = $this->data['scheduled_at'] ?? null;
+
+        if (!$scheduledAt) {
+            Notification::make()
+                ->title(__('Please select a schedule date and time'))
+                ->danger()
+                ->send();
+            return;
+        }
+
+        if (\Carbon\Carbon::parse($scheduledAt)->isPast()) {
+            Notification::make()
+                ->title(__('Schedule date must be in the future'))
+                ->danger()
+                ->send();
+            return;
+        }
+
+        $this->record->update([
+            'status'       => 'scheduled',
+            'scheduled_at' => $scheduledAt,
+        ]);
+
+        $formatted = \Carbon\Carbon::parse($scheduledAt)->format('M j, Y H:i') . ' (' . config('app.timezone') . ')';
+
+        Notification::make()
+            ->title(__('Campaign scheduled'))
+            ->body(__('Campaign will be sent on :date', ['date' => $formatted]))
+            ->success()
+            ->send();
+
+        $this->redirect($this->getResource()::getUrl('index'));
     }
 
     protected function dispatchCampaign(): void
     {
         $fresh = $this->record->fresh();
 
-        // Atomic status guard: only proceed if campaign is still 'new'
-        // This prevents double-click / race condition from dispatching multiple jobs
+        // Atomic status guard: only proceed if campaign is still in an unsent state
+        // Handles both 'new' and 'scheduled' campaigns (scheduled → send immediately with toggle OFF)
         $updated = Campaign::where('id', $fresh->id)
-            ->where('status', 'new')
-            ->update(['status' => 'sending', 'sent_at' => now()]);
+            ->whereIn('status', ['new', 'scheduled'])
+            ->update(['status' => 'sending', 'sent_at' => now(), 'scheduled_at' => null]);
 
         if ($updated === 0) {
             Notification::make()
@@ -459,6 +504,22 @@ class EditCampaign extends EditRecord
                         ->label('')
                         ->content(fn (Get $get): HtmlString => \JanDev\EmailSystem\Support\CampaignSummaryBuilder::build($get))
                         ->columnSpanFull(),
+
+                    Toggle::make('toggle_schedule_later')
+                        ->label(__('Schedule for later'))
+                        ->helperText(__('Send the campaign automatically at a future date and time'))
+                        ->default(fn () => $this->record->status === 'scheduled')
+                        ->live()
+                        ->dehydrated(false),
+
+                    DateTimePicker::make('scheduled_at')
+                        ->label(__('Schedule Date & Time'))
+                        ->default(fn () => $this->record->status === 'scheduled' ? $this->record->scheduled_at?->format('Y-m-d H:i:s') : null)
+                        ->minDate(fn () => now()->addMinutes(5))
+                        ->helperText(__('Times are in :tz', ['tz' => config('app.timezone')]))
+                        ->hidden(fn (Get $get) => !$get('toggle_schedule_later'))
+                        ->required(fn (Get $get) => (bool) $get('toggle_schedule_later'))
+                        ->dehydrated(false),
                 ]),
         ];
     }

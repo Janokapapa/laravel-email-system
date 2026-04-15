@@ -80,6 +80,23 @@ class ViewCampaign extends Page
         return collect($providers)->map(fn ($p) => $labels[$p] ?? $p)->join(', ');
     }
 
+    public function cancelSchedule(): void
+    {
+        $this->record->update([
+            'status'       => 'new',
+            'scheduled_at' => null,
+        ]);
+        $this->record->refresh();
+
+        \Filament\Notifications\Notification::make()
+            ->title(__('Schedule cancelled'))
+            ->body(__('Campaign reverted to draft status.'))
+            ->success()
+            ->send();
+
+        $this->redirect(CampaignResource::getUrl('edit', ['record' => $this->record]));
+    }
+
     public function pauseCampaign(): void
     {
         $this->record->update(['status' => 'paused']);

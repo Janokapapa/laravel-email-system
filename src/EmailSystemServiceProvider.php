@@ -59,6 +59,7 @@ class EmailSystemServiceProvider extends ServiceProvider
                 Console\Commands\SyncCustomFieldIndexes::class,
                 Console\Commands\PmtaSync::class,
                 Console\Commands\FinalizeCampaigns::class,
+                Console\Commands\DispatchScheduledCampaigns::class,
                 Console\Commands\MigrateOemproLists::class,
                 Console\Commands\ImportOemproSuppressions::class,
             ]);

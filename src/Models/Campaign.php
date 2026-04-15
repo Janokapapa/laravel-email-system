@@ -31,6 +31,7 @@ class Campaign extends Model
         'delivered_count',
         'current_step',
         'sent_at',
+        'scheduled_at',
     ];
 
     protected $casts = [
@@ -44,6 +45,7 @@ class Campaign extends Model
         'delivered_count' => 'integer',
         'current_step' => 'integer',
         'sent_at' => 'datetime',
+        'scheduled_at' => 'datetime',
     ];
 
     public function emailTemplate(): BelongsTo
@@ -83,8 +85,8 @@ class Campaign extends Model
 
     public function updateStatusFromCounts(): void
     {
-        // Don't override paused status — only manual resume should change it
-        if ($this->status === 'paused') {
+        // Don't override paused or scheduled status — only explicit actions should change these
+        if (in_array($this->status, ['paused', 'scheduled'])) {
             return;
         }
 

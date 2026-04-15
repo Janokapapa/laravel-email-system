@@ -22,6 +22,7 @@
         'sent' => ['bg' => '#d1fae5', 'text' => '#047857', 'bar' => '#10b981'],
         'sending' => ['bg' => '#fef3c7', 'text' => '#b45309', 'bar' => '#f59e0b'],
         'paused' => ['bg' => '#e0e7ff', 'text' => '#4338ca', 'bar' => '#6366f1'],
+        'scheduled' => ['bg' => '#dbeafe', 'text' => '#1d4ed8', 'bar' => '#3b82f6'],
         'partial' => ['bg' => '#dbeafe', 'text' => '#1d4ed8', 'bar' => '#3b82f6'],
         'failed' => ['bg' => '#fee2e2', 'text' => '#dc2626', 'bar' => '#ef4444'],
         default => ['bg' => '#f3f4f6', 'text' => '#6b7280', 'bar' => '#9ca3af'],
@@ -30,6 +31,7 @@
         'new' => __('New'),
         'sending' => __('Sending'),
         'paused' => __('Paused'),
+        'scheduled' => __('Scheduled'),
         'sent' => __('Sent'),
         'partial' => __('Partial'),
         'failed' => __('Failed'),
@@ -118,6 +120,10 @@
     .dark .cv-modal-tr { border-color:rgb(39 39 42); }
     .cv-modal-thead { position:sticky;top:0;background:#f9fafb; }
     .dark .cv-modal-thead { background:rgb(39 39 42); }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .cv-countdown { font-size: 14px; font-weight: 700; color: #1d4ed8; margin-top: 6px; display: flex; align-items: center; gap: 6px; justify-content: flex-end; }
+    .dark .cv-countdown { color: #60a5fa; }
+    .cv-countdown-spinner { width: 14px; height: 14px; animation: spin 1s linear infinite; }
     @media (max-width: 640px) {
         .cv-grid-3, .cv-grid-4 { grid-template-columns: repeat(2, 1fr); }
     }
@@ -156,6 +162,12 @@
                                 {{ __('Retry') }}
                             </button>
                         @endif
+                        @if($r->status === 'scheduled')
+                            <button wire:click="cancelSchedule" wire:confirm="{{ __('Cancel this schedule? The campaign will revert to draft status.') }}" style="display:inline-flex;align-items:center;gap:4px;border-radius:6px;padding:4px 10px;font-size:12px;font-weight:500;border:1px solid #dc2626;background:#fef2f2;color:#dc2626;cursor:pointer">
+                                <svg style="width:14px;height:14px" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16ZM8.28 7.22a.75.75 0 0 0-1.06 1.06L8.94 10l-1.72 1.72a.75.75 0 1 0 1.06 1.06L10 11.06l1.72 1.72a.75.75 0 1 0 1.06-1.06L11.06 10l1.72-1.72a.75.75 0 0 0-1.06-1.06L10 8.94 8.28 7.22Z" clip-rule="evenodd"/></svg>
+                                {{ __('Cancel Schedule') }}
+                            </button>
+                        @endif
                         @if($r->content_type === 'text')
                             <span class="cv-badge-sm" style="background:#f3f4f6;color:#6b7280">{{ __('Plain Text') }}</span>
                         @endif
@@ -166,7 +178,50 @@
                     <h3 class="cv-h3">{{ $r->subject }}</h3>
                     <p class="cv-sub" style="margin:0">{{ $r->sender_display_name ?? $r->sender_name }} &lt;{{ $r->sender_address }}&gt;@if($r->reply_to && $r->reply_to !== $r->sender_address) · Reply-To: {{ $r->reply_to }}@endif</p>
                 </div>
-                @if($r->sent_at)
+                @if($r->status === 'scheduled' && $r->scheduled_at)
+                    @php $scheduleRemaining = max(0, $r->scheduled_at->timestamp - now()->timestamp); @endphp
+                    <div class="cv-sent-info" x-data="{
+                        remaining: {{ $scheduleRemaining }},
+                        display: '',
+                        expired: {{ $scheduleRemaining <= 0 ? 'true' : 'false' }},
+                        init() {
+                            this.tick();
+                            setInterval(() => this.tick(), 1000);
+                        },
+                        tick() {
+                            if (this.remaining <= 0) { this.expired = true; return; }
+                            let r = this.remaining;
+                            let d = Math.floor(r / 86400);
+                            let h = Math.floor((r % 86400) / 3600);
+                            let m = Math.floor((r % 3600) / 60);
+                            let s = r % 60;
+                            let pad = n => n < 10 ? '0' + n : n;
+                            let parts = [];
+                            if (d > 0) parts.push(d + 'd');
+                            parts.push(pad(h) + ':' + pad(m) + ':' + pad(s));
+                            this.display = parts.join(' ');
+                            this.remaining--;
+                        }
+                    }">
+                        <div class="cv-sent-label">{{ __('Scheduled for') }}</div>
+                        <div class="cv-sent-date">{{ $r->scheduled_at->format('M j, Y') }}</div>
+                        <div class="cv-sent-time">{{ $r->scheduled_at->format('H:i') }} {{ config('app.timezone') }}</div>
+                        <div class="cv-countdown">
+                            <template x-if="!expired">
+                                <span style="display:flex;align-items:center;gap:6px">
+                                    <svg xmlns="http://www.w3.org/2000/svg" style="width:14px;height:14px;flex-shrink:0" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm.75-13a.75.75 0 0 0-1.5 0v5c0 .414.336.75.75.75h4a.75.75 0 0 0 0-1.5h-3.25V5Z" clip-rule="evenodd"/></svg>
+                                    <span x-text="display"></span>
+                                </span>
+                            </template>
+                            <template x-if="expired">
+                                <span style="display:flex;align-items:center;gap:6px">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="cv-countdown-spinner" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M15.312 11.424a5.5 5.5 0 0 1-9.201 2.466l-.312-.311h2.433a.75.75 0 0 0 0-1.5H4.397a.75.75 0 0 0-.75.75v3.834a.75.75 0 0 0 1.5 0v-2.433l.31.311a7 7 0 0 0 11.712-3.138.75.75 0 0 0-1.449-.39Zm-11.23-3.849a.75.75 0 0 0 1.449.39A5.5 5.5 0 0 1 14.7 10.42l.312.311h-2.433a.75.75 0 0 0 0 1.5h3.834a.75.75 0 0 0 .75-.75V7.647a.75.75 0 0 0-1.5 0v2.433l-.31-.311A7 7 0 0 0 3.674 12.907a.75.75 0 0 0 .408-1.332Z" clip-rule="evenodd"/></svg>
+                                    {{ __('Dispatching shortly...') }}
+                                </span>
+                            </template>
+                        </div>
+                    </div>
+                @elseif($r->sent_at)
                     <div class="cv-sent-info">
                         <div class="cv-sent-label">{{ __('Sent') }}</div>
                         <div class="cv-sent-date">{{ $r->sent_at->format('M j, Y') }}</div>

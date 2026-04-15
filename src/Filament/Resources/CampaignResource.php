@@ -49,7 +49,7 @@ class CampaignResource extends Resource
                 ->where('created_at', '>=', now()->subDay())
                 ->exists() ? '5s' : null
             )
-            ->recordUrl(fn (Campaign $record): string => $record->status === 'new'
+            ->recordUrl(fn (Campaign $record): string => in_array($record->status, ['new', 'scheduled'])
                 ? static::getUrl('edit', ['record' => $record])
                 : static::getUrl('view', ['record' => $record])
             )
@@ -78,6 +78,7 @@ class CampaignResource extends Resource
                     ->badge()
                     ->color(fn (string $state): string => match ($state) {
                         'new'       => 'gray',
+                        'scheduled' => 'info',
                         'sending'   => 'warning',
                         'sent'      => 'success',
                         'partial'   => 'info',
@@ -87,6 +88,7 @@ class CampaignResource extends Resource
                     })
                     ->formatStateUsing(fn (string $state): string => match ($state) {
                         'new'       => __('New'),
+                        'scheduled' => __('Scheduled'),
                         'sending'   => __('Sending...'),
                         'sent'      => __('Sent'),
                         'partial'   => __('Partial'),
@@ -94,6 +96,39 @@ class CampaignResource extends Resource
                         'cancelled' => __('Cancelled'),
                         default     => ucfirst($state),
                     }),
+
+                TextColumn::make('scheduled_at')
+                    ->label(__('Scheduled'))
+                    ->formatStateUsing(function ($state, Campaign $record): string {
+                        if (!$record->scheduled_at || $record->status !== 'scheduled') {
+                            return '<span style="color:#9ca3af">—</span>';
+                        }
+
+                        $dateStr = e($record->scheduled_at->format('M j, H:i'));
+                        $tz = e(config('app.timezone'));
+                        $remaining = max(0, $record->scheduled_at->timestamp - now()->timestamp);
+                        $expired = $remaining <= 0 ? 'true' : 'false';
+
+                        $js = "r:{$remaining},d:'',x:{$expired},"
+                            . "init(){this.t();setInterval(()=>this.t(),1000)},"
+                            . "t(){if(this.r<=0){this.x=true;return}"
+                            . "let r=this.r,dd=Math.floor(r/86400),h=Math.floor((r%86400)/3600),"
+                            . "m=Math.floor((r%3600)/60),s=r%60,"
+                            . "p=n=>n<10?'0'+n:n,a=[];"
+                            . "if(dd>0)a.push(dd+'d');"
+                            . "a.push(p(h)+':'+p(m)+':'+p(s));"
+                            . "this.d=a.join(' ');this.r--}";
+
+                        return '<div style="line-height:1.6">'
+                            . '<div style="font-size:12px">' . $dateStr . ' <span style="color:#9ca3af">' . $tz . '</span></div>'
+                            . '<div x-data="{' . $js . '}">'
+                            . '<span x-show="!x" x-text="d" style="color:#3b82f6;font-weight:600;font-size:12px"></span>'
+                            . '<span x-show="x" style="color:#3b82f6;font-weight:600;font-size:12px">' . e(__('Dispatching shortly...')) . '</span>'
+                            . '</div>'
+                            . '</div>';
+                    })
+                    ->html()
+                    ->sortable(),
 
                 TextColumn::make('progress')
                     ->label(__('Progress'))
@@ -148,7 +183,27 @@ class CampaignResource extends Resource
             ->filters([])
             ->recordActions([
                 ViewAction::make()
-                    ->visible(fn (Campaign $record): bool => $record->status !== 'new'),
+                    ->visible(fn (Campaign $record): bool => !in_array($record->status, ['new', 'scheduled'])),
+                Action::make('cancel_schedule')
+                    ->label(__('Cancel Schedule'))
+                    ->icon('heroicon-o-x-circle')
+                    ->color('gray')
+                    ->requiresConfirmation()
+                    ->modalHeading(__('Cancel Scheduled Send'))
+                    ->modalDescription(__('The campaign will be reverted to "New" status. No emails will be sent.'))
+                    ->visible(fn (Campaign $record): bool => $record->status === 'scheduled')
+                    ->action(function (Campaign $record) {
+                        $record->update([
+                            'status'       => 'new',
+                            'scheduled_at' => null,
+                        ]);
+
+                        Notification::make()
+                            ->title(__('Schedule cancelled'))
+                            ->body(__('Campaign reverted to draft status.'))
+                            ->success()
+                            ->send();
+                    }),
                 Action::make('stop')
                     ->label(__('Stop'))
                     ->icon('heroicon-o-stop-circle')
@@ -199,6 +254,7 @@ class CampaignResource extends Resource
                         $clone->failed_count = 0;
                         $clone->delivered_count = 0;
                         $clone->sent_at = null;
+                        $clone->scheduled_at = null;
                         $clone->save();
 
                         return redirect(static::getUrl('edit', ['record' => $clone]));
