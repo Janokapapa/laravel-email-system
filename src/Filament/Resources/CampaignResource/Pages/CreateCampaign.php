@@ -381,8 +381,7 @@ class CreateCampaign extends CreateRecord
                         ->minDate(fn () => now()->addMinutes(5))
                         ->helperText(__('Times are in :tz', ['tz' => config('app.timezone')]))
                         ->hidden(fn (Get $get) => !$get('toggle_schedule_later'))
-                        ->required(fn (Get $get) => (bool) $get('toggle_schedule_later'))
-                        ->dehydrated(false),
+                        ->required(fn (Get $get) => (bool) $get('toggle_schedule_later')),
                 ]),
         ];
     }
@@ -445,15 +444,12 @@ class CreateCampaign extends CreateRecord
     {
         $data['current_step'] = 5;
 
-        // Check schedule toggle from Livewire data (dehydrated=false fields aren't in $data)
         $toggleOn = $this->data['toggle_schedule_later'] ?? false;
-        $scheduledAt = $this->data['scheduled_at'] ?? null;
-
-        if ($toggleOn && $scheduledAt) {
+        if ($toggleOn && !empty($data['scheduled_at'])) {
             $data['status'] = 'scheduled';
-            $data['scheduled_at'] = $scheduledAt;
         } else {
             $data['status'] = 'new';
+            $data['scheduled_at'] = null;
         }
 
         return $data;

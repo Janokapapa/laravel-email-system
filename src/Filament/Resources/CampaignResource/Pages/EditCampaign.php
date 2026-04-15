@@ -518,8 +518,7 @@ class EditCampaign extends EditRecord
                         ->minDate(fn () => now()->addMinutes(5))
                         ->helperText(__('Times are in :tz', ['tz' => config('app.timezone')]))
                         ->hidden(fn (Get $get) => !$get('toggle_schedule_later'))
-                        ->required(fn (Get $get) => (bool) $get('toggle_schedule_later'))
-                        ->dehydrated(false),
+                        ->required(fn (Get $get) => (bool) $get('toggle_schedule_later')),
                 ]),
         ];
     }
@@ -555,8 +554,19 @@ class EditCampaign extends EditRecord
 
     protected function mutateFormDataBeforeSave(array $data): array
     {
-        // Track that they've seen all steps
         $data['current_step'] = 5;
+
+        // Handle schedule toggle (toggle is dehydrated=false, read from Livewire data)
+        $toggleOn = $this->data['toggle_schedule_later'] ?? false;
+        if ($toggleOn && !empty($data['scheduled_at'])) {
+            $data['status'] = 'scheduled';
+        } else {
+            $data['scheduled_at'] = null;
+            if ($this->record->status === 'scheduled') {
+                $data['status'] = 'new';
+            }
+        }
+
         return $data;
     }
 
@@ -566,6 +576,12 @@ class EditCampaign extends EditRecord
     }
     protected function getSavedNotificationTitle(): ?string
     {
+        if ($this->record->status === 'scheduled' && $this->record->scheduled_at) {
+            return __('Campaign scheduled for :time', [
+                'time' => $this->record->scheduled_at->format('M j, Y H:i'),
+            ]);
+        }
+
         return __('Campaign saved');
     }
     protected function getRedirectUrl(): string
