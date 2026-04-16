@@ -508,17 +508,51 @@ class EditCampaign extends EditRecord
                     Toggle::make('toggle_schedule_later')
                         ->label(__('Schedule for later'))
                         ->helperText(__('Send the campaign automatically at a future date and time'))
-                        ->default(fn () => $this->record->status === 'scheduled')
+                        ->afterStateHydrated(fn (Toggle $component) => $component->state($this->record->status === 'scheduled'))
                         ->live()
                         ->dehydrated(false),
 
                     DateTimePicker::make('scheduled_at')
                         ->label(__('Schedule Date & Time'))
-                        ->default(fn () => $this->record->status === 'scheduled' ? $this->record->scheduled_at?->format('Y-m-d H:i:s') : null)
                         ->minDate(fn () => now()->addMinutes(5))
                         ->helperText(__('Times are in :tz', ['tz' => config('app.timezone')]))
                         ->hidden(fn (Get $get) => !$get('toggle_schedule_later'))
                         ->required(fn (Get $get) => (bool) $get('toggle_schedule_later')),
+
+                    Placeholder::make('schedule_countdown')
+                        ->label('')
+                        ->content(function (): HtmlString {
+                            $scheduledAt = $this->record->scheduled_at;
+                            if (!$scheduledAt || $this->record->status !== 'scheduled') {
+                                return new HtmlString('');
+                            }
+
+                            $dateStr = e($scheduledAt->format('M j, Y H:i'));
+                            $tz = e(config('app.timezone'));
+                            $remaining = max(0, $scheduledAt->timestamp - now()->timestamp);
+                            $expired = $remaining <= 0 ? 'true' : 'false';
+
+                            $js = "r:{$remaining},d:'',x:{$expired},"
+                                . "init(){this.t();setInterval(()=>this.t(),1000)},"
+                                . "t(){if(this.r<=0){this.x=true;return}"
+                                . "let r=this.r,dd=Math.floor(r/86400),h=Math.floor((r%86400)/3600),"
+                                . "m=Math.floor((r%3600)/60),s=r%60,"
+                                . "p=n=>n<10?'0'+n:n,a=[];"
+                                . "if(dd>0)a.push(dd+'d');"
+                                . "a.push(p(h)+':'+p(m)+':'+p(s));"
+                                . "this.d=a.join(' ');this.r--}";
+
+                            return new HtmlString(
+                                '<div x-data="{' . $js . '}" class="flex items-center gap-2 text-sm">'
+                                . '<span style="color:#6b7280">' . e(__('Scheduled for')) . ' ' . $dateStr . ' <span style="color:#9ca3af">' . $tz . '</span></span>'
+                                . ' &mdash; '
+                                . '<span x-show="!x" x-text="d" style="color:#3b82f6;font-weight:600"></span>'
+                                . '<span x-show="x" style="color:#3b82f6;font-weight:600">' . e(__('Dispatching shortly...')) . '</span>'
+                                . '</div>'
+                            );
+                        })
+                        ->hidden(fn (Get $get) => !$get('toggle_schedule_later'))
+                        ->columnSpanFull(),
                 ]),
         ];
     }
