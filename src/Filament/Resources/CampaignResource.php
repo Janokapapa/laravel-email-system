@@ -13,6 +13,7 @@ use Filament\Actions\DeleteAction;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\ViewAction;
 use Filament\Notifications\Notification;
+use Illuminate\Support\HtmlString;
 
 class CampaignResource extends Resource
 {
@@ -99,9 +100,9 @@ class CampaignResource extends Resource
 
                 TextColumn::make('scheduled_at')
                     ->label(__('Scheduled'))
-                    ->formatStateUsing(function ($state, Campaign $record): string {
+                    ->formatStateUsing(function ($state, Campaign $record): HtmlString {
                         if (!$record->scheduled_at || $record->status !== 'scheduled') {
-                            return '<span style="color:#9ca3af">—</span>';
+                            return new HtmlString('<span style="color:#9ca3af">—</span>');
                         }
 
                         $dateStr = e($record->scheduled_at->format('M j, H:i'));
@@ -119,15 +120,16 @@ class CampaignResource extends Resource
                             . "a.push(p(h)+':'+p(m)+':'+p(s));"
                             . "this.d=a.join(' ');this.r--}";
 
-                        return '<div style="line-height:1.6">'
+                        return new HtmlString(
+                            '<div style="line-height:1.6">'
                             . '<div style="font-size:12px">' . $dateStr . ' <span style="color:#9ca3af">' . $tz . '</span></div>'
                             . '<div x-data="{' . $js . '}">'
                             . '<span x-show="!x" x-text="d" style="color:#3b82f6;font-weight:600;font-size:12px"></span>'
                             . '<span x-show="x" style="color:#3b82f6;font-weight:600;font-size:12px">' . e(__('Dispatching shortly...')) . '</span>'
                             . '</div>'
-                            . '</div>';
+                            . '</div>'
+                        );
                     })
-                    ->html()
                     ->sortable(),
 
                 TextColumn::make('progress')
