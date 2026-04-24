@@ -14,8 +14,6 @@ class PlaceholderHint
             '{{name}}',
             '{{email}}',
             '{{unsubscribe=Unsubscribe here}}',
-            '{{country}}',
-            '{{currency}}',
         ];
 
         if (class_exists(\JanDev\UserManagement\Models\Setting::class)) {
