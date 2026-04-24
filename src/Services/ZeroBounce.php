@@ -341,6 +341,20 @@ class ZeroBounce
     }
 
     /**
+     * Get a human-readable label combining status and sub-status when present.
+     * Example: status='invalid', sub='mailbox_not_found' → "Invalid (mailbox_not_found)".
+     * Falls back to plain label when sub-status is empty.
+     */
+    public static function getStatusLabelWithSubStatus(string $status, ?string $subStatus): string
+    {
+        $label = self::getStatusLabel($status);
+        if ($subStatus !== null && $subStatus !== '') {
+            return $label . ' (' . $subStatus . ')';
+        }
+        return $label;
+    }
+
+    /**
      * Get the Filament badge color for a status value.
      *
      * Valid    → success (green)

@@ -24,9 +24,11 @@ use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Actions\Action;
+use Filament\Actions\BulkAction;
 use Filament\Actions\EditAction;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Notifications\Notification;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
@@ -74,6 +76,7 @@ class AudienceUsersRelationManager extends RelationManager
     public function table(Table $table): Table
     {
         return $table
+            ->description(__('Falsely bounced? See docs/bounce-false-positives.md — use the Restore from Bounced action on affected rows.'))
             ->defaultPaginationPageOption(50)
             ->columns([
                 TextColumn::make('name')->label(__('User Name')),
@@ -90,8 +93,16 @@ class AudienceUsersRelationManager extends RelationManager
                     ->label(__('ZeroBounce'))
                     ->badge()
                     ->color(fn (?string $state): string => ZeroBounce::getStatusColor($state ?? 'unverified'))
-                    ->formatStateUsing(fn (?string $state): string => ZeroBounce::getStatusLabel($state ?? 'unverified'))
+                    ->formatStateUsing(fn (?string $state, AudienceUser $record): string =>
+                        ZeroBounce::getStatusLabelWithSubStatus($state ?? 'unverified', $record->zerobounce_sub_status)
+                    )
                     ->visible(fn () => ZeroBounce::isEnabled()),
+
+                TextColumn::make('bounce_reason')
+                    ->label(__('Bounce Reason'))
+                    ->limit(60)
+                    ->tooltip(fn (?string $state): ?string => $state)
+                    ->toggleable(isToggledHiddenByDefault: true),
 
                 ...CustomFieldComponents::tableColumns(),
             ])
@@ -440,9 +451,110 @@ class AudienceUsersRelationManager extends RelationManager
             ])
             ->recordActions([
                 EditAction::make(),
+
+                Action::make('setZeroBounceStatus')
+                    ->label(__('Set ZB Status'))
+                    ->icon('heroicon-o-shield-check')
+                    ->color('info')
+                    ->schema([
+                        Select::make('zerobounce_status')
+                            ->label(__('New ZeroBounce Status'))
+                            ->options([
+                                'unverified' => __('Unverified'),
+                                'valid'      => __('Valid'),
+                                'catch_all'  => __('Catch-All'),
+                                'unknown'    => __('Unknown'),
+                                'invalid'    => __('Invalid'),
+                                // 'bounced' intentionally omitted — use Restore action for bounce state
+                            ])
+                            ->default(fn (AudienceUser $record) => $record->zerobounce_status ?? 'unverified')
+                            ->required(),
+                    ])
+                    ->modalHeading(fn (AudienceUser $record) => __('Override ZB status for :email', ['email' => $record->email]))
+                    ->modalDescription(__('ZeroBounce status is informational. Emails are only blocked from sending when the Bounced flag is set by a real SMTP/webhook bounce — use the Restore action to clear that flag.'))
+                    ->action(function (array $data, AudienceUser $record) {
+                        $record->update([
+                            'zerobounce_status'     => $data['zerobounce_status'],
+                            'zerobounce_sub_status' => null,
+                            'zerobounce_checked_at' => now(),
+                        ]);
+                        Notification::make()
+                            ->title(__('ZB status updated'))
+                            ->body($record->email . ' → ' . $data['zerobounce_status'])
+                            ->success()
+                            ->send();
+                    })
+                    ->visible(fn (): bool => ZeroBounce::isEnabled()),
+
+                Action::make('restoreFromBounced')
+                    ->label(__('Restore from Bounced'))
+                    ->icon('heroicon-o-arrow-path')
+                    ->color('warning')
+                    ->visible(fn (AudienceUser $record): bool => (bool) $record->bounced || $record->zerobounce_status === 'bounced')
+                    ->requiresConfirmation()
+                    ->modalDescription(__('Clear bounce flags across ALL groups for this email, and remove the email from the global bounce registry so re-imports are not re-flagged.'))
+                    ->action(function (AudienceUser $record) {
+                        $email = strtolower($record->email);
+                        DB::transaction(function () use ($email) {
+                            AudienceUser::where('email', $email)->update([
+                                'bounced'               => false,
+                                'bounce_type'           => null,
+                                'bounce_reason'         => null,
+                                'bounced_at'            => null,
+                                'is_active'             => true,
+                                'zerobounce_status'     => 'unverified',
+                                'zerobounce_sub_status' => null,
+                                'zerobounce_checked_at' => now(),
+                            ]);
+                            DB::table('bounced_emails')->where('email', $email)->delete();
+                        });
+                        Notification::make()
+                            ->title(__('Restored'))
+                            ->body($record->email)
+                            ->success()
+                            ->send();
+                    }),
             ])
             ->toolbarActions([
                 DeleteBulkAction::make(),
+
+                BulkAction::make('restoreBouncedBulk')
+                    ->label(__('Restore from Bounced'))
+                    ->icon('heroicon-o-arrow-path')
+                    ->color('warning')
+                    ->requiresConfirmation()
+                    ->modalDescription(__('Restore ALL selected subscribers plus any other groups sharing their email; removes from bounce registry.'))
+                    ->action(function (Collection $records) {
+                        $emails = $records->pluck('email')
+                            ->map(fn ($e) => strtolower($e))
+                            ->unique()
+                            ->values();
+                        $restored = 0;
+                        $emails->chunk(200)->each(function (Collection $chunk) use (&$restored) {
+                            DB::transaction(function () use ($chunk, &$restored) {
+                                $list = $chunk->all();
+                                $restored += AudienceUser::whereIn('email', $list)->update([
+                                    'bounced'               => false,
+                                    'bounce_type'           => null,
+                                    'bounce_reason'         => null,
+                                    'bounced_at'            => null,
+                                    'is_active'             => true,
+                                    'zerobounce_status'     => 'unverified',
+                                    'zerobounce_sub_status' => null,
+                                    'zerobounce_checked_at' => now(),
+                                ]);
+                                DB::table('bounced_emails')->whereIn('email', $list)->delete();
+                            });
+                        });
+                        Notification::make()
+                            ->title(__('Restored'))
+                            ->body(__(':count subscriber row(s) restored across :emails unique email(s)', [
+                                'count'  => $restored,
+                                'emails' => $emails->count(),
+                            ]))
+                            ->success()
+                            ->send();
+                    }),
             ]);
     }
 
