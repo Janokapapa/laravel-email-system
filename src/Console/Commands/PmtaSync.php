@@ -83,13 +83,17 @@ class PmtaSync extends Command
                     }
                 }
 
-                // Check if EML already exists (idempotent)
-                $expectedPath = $serverName !== null
-                    ? $spoolBase . '/outgoing/' . $serverName . '/email_' . $emailLog->id
-                    : $spoolBase . '/outgoing/email_' . $emailLog->id;
-
-                if (is_file($expectedPath)) {
-                    continue; // Already spooled
+                // Check if EML already exists (idempotent).
+                // Look across ALL outgoing/*/ subdirectories AND the flat outgoing/ —
+                // failover may have moved the file from the originally-resolved server
+                // to a fallback server's directory. Without this, PHASE 1 would
+                // regenerate the EML with a fresh Message-ID and the recipient would
+                // receive the same campaign twice.
+                $basename = 'email_' . $emailLog->id;
+                $anyExisting = glob($spoolBase . '/outgoing/*/' . $basename) ?: [];
+                $flatPath = $spoolBase . '/outgoing/' . $basename;
+                if (!empty($anyExisting) || is_file($flatPath)) {
+                    continue; // Already spooled (in target or failover dir)
                 }
 
                 // Generate unsubscribe URL for this recipient
