@@ -106,7 +106,12 @@
                         <div class="cv-accent-bar" style="background:{{ $rateColor }}"></div>
                         <div class="cv-pad">
                             <div class="cv-flex cv-between" style="margin-bottom:12px">
-                                <h3 class="cv-h3">{{ $s['server'] }}</h3>
+                                <div>
+                                    <h3 class="cv-h3">{{ $s['server'] }}</h3>
+                                    @if(($s['label'] ?? '') !== '' && $s['label'] !== $s['server'])
+                                        <div class="cv-sub" style="margin-top:2px">{{ $s['label'] }}</div>
+                                    @endif
+                                </div>
                                 <span class="cv-rate-badge" style="background:{{ $rateBg }};color:{{ $rateText }}">
                                     {{ $s['rate'] }}%
                                 </span>

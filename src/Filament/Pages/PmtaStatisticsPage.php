@@ -27,6 +27,22 @@ class PmtaStatisticsPage extends Page
 
     public int $selectedPeriod = 7;
 
+    public static function serverLabels(): array
+    {
+        return [
+            'caspmta1' => 'einformations.com',
+            'caspmta2' => 'exoluton.com',
+            'caspmta3' => 'wavebrix.com',
+            'caspmta4' => 'm1.onlinecasinoevents.com',
+            'caspmta5' => 'missslotsclub.com',
+        ];
+    }
+
+    public static function labelFor(string $server): string
+    {
+        return self::serverLabels()[$server] ?? $server;
+    }
+
     public function setPeriod(int $days): void
     {
         if (in_array($days, [1, 7, 14, 30], true)) {
@@ -55,6 +71,7 @@ class PmtaStatisticsPage extends Page
 
             $result[] = [
                 'server' => $server,
+                'label' => self::labelFor($server),
                 'delivered' => $delivered,
                 'bounced_stop' => $bouncedStop,
                 'bounced_go' => $bouncedGo,

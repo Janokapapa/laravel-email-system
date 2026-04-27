@@ -33,15 +33,24 @@ class PmtaServerDetailPage extends Page
 
     public function getTitle(): string
     {
-        return $this->server . ' — PMTA Statistics';
+        return $this->serverDisplayName() . ' — PMTA Statistics';
     }
 
     public function getBreadcrumbs(): array
     {
         return [
             PmtaStatisticsPage::getUrl() => 'PMTA Statistics',
-            '#' => $this->server,
+            '#' => $this->serverDisplayName(),
         ];
+    }
+
+    public function serverDisplayName(): string
+    {
+        $label = PmtaStatisticsPage::labelFor($this->server);
+
+        return $label === $this->server
+            ? $this->server
+            : $this->server . ' — ' . $label;
     }
 
     public function setPeriod(int $days): void
