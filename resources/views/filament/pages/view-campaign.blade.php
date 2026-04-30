@@ -449,7 +449,7 @@
                             <div style="font-size:12px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">{{ __('Subject') }}</div>
                             <div style="font-size:14px;color:#111827;margin-bottom:14px" class="dark:!text-zinc-100">{{ $v['subject'] ?: '—' }}</div>
                             <div style="font-size:12px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">{{ __('Body') }}</div>
-                            <div style="font-size:13px;line-height:1.55;background:#f9fafb;border-radius:8px;padding:12px;max-height:300px;overflow:auto" class="dark:!bg-zinc-800 dark:!text-zinc-200">
+                            <div style="font-size:13px;line-height:1.55;background:#fff;color:#111827;border-radius:8px;padding:12px;max-height:300px;overflow:auto;color-scheme:light">
                                 {!! $v['body'] ?: '<em style="color:#9ca3af">' . __('No content') . '</em>' !!}
                             </div>
                         </div>
