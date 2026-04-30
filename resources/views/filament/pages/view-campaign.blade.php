@@ -394,6 +394,82 @@
         </div>
     @endif
 
+    {{-- By variation --}}
+    @php $variationStats = $this->getVariationStats(); @endphp
+    @if(!empty($variationStats))
+        <div class="cv-card cv-pad">
+            <div class="cv-flex cv-gap-2" style="margin-bottom:16px">
+                <svg style="width:16px;height:16px;color:#9ca3af;flex-shrink:0" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M2 4.75A.75.75 0 0 1 2.75 4h14.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 4.75ZM2 10a.75.75 0 0 1 .75-.75h9.5a.75.75 0 0 1 0 1.5h-9.5A.75.75 0 0 1 2 10Zm0 5.25a.75.75 0 0 1 .75-.75h14.5a.75.75 0 0 1 0 1.5H2.75a.75.75 0 0 1-.75-.75Z" clip-rule="evenodd"/></svg>
+                <h3 class="cv-section-title">{{ __('By Variation') }}</h3>
+                <span class="cv-badge-sm" style="background:#eef2ff;color:#4f46e5">{{ count($variationStats) }} {{ trans_choice('version|versions', count($variationStats)) }}</span>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:12px">
+                @foreach($variationStats as $vIndex => $v)
+                    <details class="cv-list-item" @if($vIndex === 0 && count($variationStats) <= 3) open @endif>
+                        <summary style="cursor:pointer;list-style:none;outline:none">
+                            <div class="cv-flex cv-between" style="margin-bottom:10px">
+                                <div class="cv-flex cv-gap-2" style="flex-wrap:wrap">
+                                    <span class="cv-dot" style="background: {{ $v['is_original'] ? '#10b981' : '#6366f1' }}"></span>
+                                    <span class="cv-list-name">{{ $v['label'] }}</span>
+                                    <span style="color:#6b7280;font-size:13px">— {{ $v['subject'] ?: '(no subject)' }}</span>
+                                </div>
+                                <span class="cv-list-date">{{ number_format($v['sent']) }} {{ __('sent') }}</span>
+                            </div>
+                            <div class="cv-flex cv-gap-3" style="flex-wrap:wrap">
+                                @if($v['delivered'] > 0)
+                                    <span class="cv-list-stat" style="color:#0369a1">
+                                        {{ number_format($v['delivered']) }} {{ __('delivered') }}
+                                    </span>
+                                @endif
+                                @if($v['opened'] > 0)
+                                    <span class="cv-list-stat" style="color:#047857">
+                                        {{ number_format($v['opened']) }} {{ __('opened') }}
+                                        <span style="color:#9ca3af;font-weight:400">({{ $v['open_rate'] }}%)</span>
+                                    </span>
+                                @endif
+                                @if($v['clicked'] > 0)
+                                    <span class="cv-list-stat" style="color:#7c3aed">
+                                        {{ number_format($v['clicked']) }} {{ __('clicked') }}
+                                        <span style="color:#9ca3af;font-weight:400">({{ $v['click_rate'] }}%)</span>
+                                    </span>
+                                @endif
+                                @if($v['failed'] > 0)
+                                    <span class="cv-list-stat" style="color:#dc2626">
+                                        {{ number_format($v['failed']) }} {{ __('failed') }}
+                                    </span>
+                                @endif
+                                @if($v['unsubscribed'] > 0)
+                                    <span class="cv-list-stat" style="color:#a21caf">
+                                        {{ number_format($v['unsubscribed']) }} {{ __('unsub') }}
+                                    </span>
+                                @endif
+                            </div>
+                        </summary>
+                        <div style="margin-top:14px;padding-top:14px;border-top:1px solid rgba(0,0,0,.06)">
+                            <div style="font-size:12px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">{{ __('Subject') }}</div>
+                            <div style="font-size:14px;color:#111827;margin-bottom:14px" class="dark:!text-zinc-100">{{ $v['subject'] ?: '—' }}</div>
+                            <div style="font-size:12px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">{{ __('Body') }}</div>
+                            <div style="font-size:13px;line-height:1.55;background:#f9fafb;border-radius:8px;padding:12px;max-height:300px;overflow:auto" class="dark:!bg-zinc-800 dark:!text-zinc-200">
+                                {!! $v['body'] ?: '<em style="color:#9ca3af">' . __('No content') . '</em>' !!}
+                            </div>
+                        </div>
+                    </details>
+                @endforeach
+            </div>
+            @php
+                $totalSent = array_sum(array_column($variationStats, 'sent'));
+                $hasUntracked = collect($variationStats)->where('is_original', false)->where('sent', 0)->isNotEmpty()
+                    && $totalSent > 0
+                    && collect($variationStats)->where('is_original', true)->first()['sent'] === $totalSent;
+            @endphp
+            @if($hasUntracked)
+                <div style="margin-top:14px;padding:10px 12px;background:#fef3c7;border-radius:8px;font-size:12px;color:#92400e">
+                    {{ __('Older sends predate variation tracking — all logs counted under "Original" even if a variation was used.') }}
+                </div>
+            @endif
+        </div>
+    @endif
+
     {{-- By audience --}}
     @if($audienceStats->count() > 0)
         <div class="cv-card cv-pad">

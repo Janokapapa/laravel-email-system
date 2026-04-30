@@ -157,6 +157,70 @@ class ViewCampaign extends Page
         ]);
     }
 
+    public function getVariationStats(): array
+    {
+        $variations = $this->record->variations ?? [];
+        $rows = [];
+
+        // Original (variation_id is NULL)
+        $rows[] = [
+            'key'      => null,
+            'label'    => __('Original'),
+            'subject'  => $this->record->subject ?? '',
+            'body'     => $this->record->body ?? '',
+            'is_original' => true,
+        ];
+
+        $idx = 1;
+        foreach ($variations as $key => $variation) {
+            $rows[] = [
+                'key'         => is_string($key) ? $key : (string) $key,
+                'label'       => __('Variation') . ' ' . $idx++,
+                'subject'     => $variation['subject'] ?? '',
+                'body'        => $variation['body'] ?? '',
+                'is_original' => false,
+            ];
+        }
+
+        if (count($rows) <= 1) {
+            return [];
+        }
+
+        // One aggregated query — group by variation_id including NULL
+        $stats = EmailLog::where('campaign_id', $this->record->id)
+            ->selectRaw("
+                variation_id,
+                COUNT(*) as total,
+                SUM(CASE WHEN status IN ('sent','spooled','delivered') THEN 1 ELSE 0 END) as sent,
+                SUM(CASE WHEN status = 'delivered' THEN 1 ELSE 0 END) as delivered,
+                SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed,
+                SUM(opened) as opened,
+                SUM(clicked) as clicked,
+                SUM(unsubscribed) as unsubscribed
+            ")
+            ->groupBy('variation_id')
+            ->get()
+            ->keyBy(fn ($r) => $r->variation_id ?? '__null__');
+
+        foreach ($rows as &$row) {
+            $key = $row['key'] ?? '__null__';
+            $stat = $stats->get($key);
+            $sent = (int) ($stat->sent ?? 0);
+            $row['sent']         = $sent;
+            $row['total']        = (int) ($stat->total ?? 0);
+            $row['delivered']    = (int) ($stat->delivered ?? 0);
+            $row['failed']       = (int) ($stat->failed ?? 0);
+            $row['opened']       = (int) ($stat->opened ?? 0);
+            $row['clicked']      = (int) ($stat->clicked ?? 0);
+            $row['unsubscribed'] = (int) ($stat->unsubscribed ?? 0);
+            $row['open_rate']    = $sent > 0 ? round($row['opened'] / $sent * 100, 1) : 0;
+            $row['click_rate']   = $sent > 0 ? round($row['clicked'] / $sent * 100, 1) : 0;
+        }
+        unset($row);
+
+        return $rows;
+    }
+
     public function retryCampaign(): void
     {
         // Recalculate total_recipients with same filters as QueueEmailsForAudience

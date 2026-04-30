@@ -167,7 +167,7 @@ class QueueEmailsForAudience implements ShouldQueue
                 'body'         => $this->campaignBody ?? '',
                 'variation_id' => null,
             ];
-            foreach ($this->campaignVariations as $index => $variation) {
+            foreach ($this->campaignVariations as $key => $variation) {
                 $subject = trim($variation['subject'] ?? '');
                 $body = $variation['body'] ?? '';
                 if ($subject === '' && strip_tags($body) === '') {
@@ -176,7 +176,7 @@ class QueueEmailsForAudience implements ShouldQueue
                 $contentPool[] = [
                     'subject'      => $subject,
                     'body'         => $body,
-                    'variation_id' => null,
+                    'variation_id' => is_string($key) ? $key : (string) $key,
                 ];
             }
         } elseif ($template) {
