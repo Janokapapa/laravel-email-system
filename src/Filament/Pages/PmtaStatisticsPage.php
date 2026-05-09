@@ -5,9 +5,12 @@ namespace JanDev\EmailSystem\Filament\Pages;
 use BackedEnum;
 use Filament\Pages\Page;
 use Illuminate\Support\Facades\Cache;
+use JanDev\EmailSystem\Filament\Concerns\PmtaHistoricalChartData;
 
 class PmtaStatisticsPage extends Page
 {
+    use PmtaHistoricalChartData;
+
     protected static string|BackedEnum|null $navigationIcon = 'heroicon-o-chart-bar';
 
     protected static ?string $navigationLabel = 'PMTA Statistics';
@@ -47,6 +50,7 @@ class PmtaStatisticsPage extends Page
     {
         if (in_array($days, [1, 7, 14, 30], true)) {
             $this->selectedPeriod = $days;
+            $this->dispatch('historical-data-updated', data: $this->getHistoricalChartData());
         }
     }
 

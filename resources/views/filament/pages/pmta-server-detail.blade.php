@@ -7,6 +7,7 @@
     $domainTable = $this->getDomainTableData();
     $ipTable = $this->getIpTableData();
     $chart = $this->getChartData();
+    $historical = $this->getHistoricalChartData();
     $periods = [1 => '1d', 7 => '7d', 14 => '14d', 30 => '30d'];
 @endphp
 
@@ -73,6 +74,86 @@
             @endforeach
         </div>
     </div>
+
+    {{-- Historical trend chart --}}
+    <div class="cv-card cv-pad" wire:ignore>
+        <h3 class="cv-section-title" style="margin-bottom:16px">Trend ({{ $this->selectedPeriod }}d)</h3>
+        <div id="pmta-detail-historical-empty" class="cv-sub" style="text-align:center;padding:32px 0;{{ count($historical['labels']) === 0 ? '' : 'display:none' }}">
+            No historical data yet — wait for the next push or run <code>php artisan pmta:backfill-stats {{ $this->server }}</code>.
+        </div>
+        <div id="pmta-detail-historical-canvas-wrap" style="position:relative;height:300px;{{ count($historical['labels']) === 0 ? 'display:none' : '' }}">
+            <canvas id="pmta-detail-historical-chart"></canvas>
+        </div>
+    </div>
+
+    @script
+    <script>
+        (function () {
+            let pmtaDetailHistChart = null;
+            const initial = @js($historical);
+
+            function renderDetailHistoricalChart(data) {
+                const empty = document.getElementById('pmta-detail-historical-empty');
+                const wrap  = document.getElementById('pmta-detail-historical-canvas-wrap');
+                const canvas = document.getElementById('pmta-detail-historical-chart');
+                if (!canvas || typeof Chart === 'undefined') return;
+
+                const isEmpty = !data || !data.labels || data.labels.length === 0;
+                if (empty) empty.style.display = isEmpty ? '' : 'none';
+                if (wrap)  wrap.style.display  = isEmpty ? 'none' : '';
+
+                if (pmtaDetailHistChart) { pmtaDetailHistChart.destroy(); pmtaDetailHistChart = null; }
+                if (isEmpty) return;
+
+                pmtaDetailHistChart = new Chart(canvas, {
+                    data: {
+                        labels: data.labels,
+                        datasets: [
+                            {
+                                label: 'Delivered',
+                                type: 'bar',
+                                data: data.delivered,
+                                backgroundColor: 'rgba(59,130,246,0.7)',
+                                borderColor: 'rgba(59,130,246,1)',
+                                yAxisID: 'y',
+                                order: 2,
+                            },
+                            {
+                                label: 'Delivery rate %',
+                                type: 'line',
+                                data: data.rate,
+                                borderColor: 'rgba(234,88,12,1)',
+                                backgroundColor: 'rgba(234,88,12,0.2)',
+                                yAxisID: 'y1',
+                                tension: 0.25,
+                                spanGaps: false,
+                                order: 1,
+                            },
+                        ],
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            y:  { type: 'linear', position: 'left',  title: { display: true, text: 'Delivered' } },
+                            y1: { type: 'linear', position: 'right', min: 0, max: 100,
+                                  title: { display: true, text: 'Rate %' }, grid: { drawOnChartArea: false } },
+                        },
+                        plugins: { legend: { position: 'bottom' } },
+                    },
+                });
+            }
+
+            renderDetailHistoricalChart(initial);
+
+            Livewire.on('historical-data-updated', (event) => {
+                const payload = Array.isArray(event) ? event[0] : event;
+                const data = payload && payload.data ? payload.data : payload;
+                renderDetailHistoricalChart(data);
+            });
+        })();
+    </script>
+    @endscript
 
     @if($serverData)
         @php

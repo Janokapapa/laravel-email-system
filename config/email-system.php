@@ -47,6 +47,7 @@ return [
     'pmta' => [
         'bounce_api_key' => env('PMTA_BOUNCE_API_KEY'),
         'servers' => ['caspmta1', 'caspmta2', 'caspmta3', 'caspmta4', 'caspmta5'],
+        'stats_retention_days' => (int) env('PMTA_STATS_RETENTION_DAYS', 365),
     ],
 
     /*

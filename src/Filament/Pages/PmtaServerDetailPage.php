@@ -5,9 +5,17 @@ namespace JanDev\EmailSystem\Filament\Pages;
 use BackedEnum;
 use Filament\Pages\Page;
 use Illuminate\Support\Facades\Cache;
+use JanDev\EmailSystem\Filament\Concerns\PmtaHistoricalChartData;
 
 class PmtaServerDetailPage extends Page
 {
+    use PmtaHistoricalChartData;
+
+    protected function historicalServerList(): array
+    {
+        return $this->server !== '' ? [$this->server] : [];
+    }
+
     protected static string|BackedEnum|null $navigationIcon = 'heroicon-o-server';
 
     protected static ?string $slug = 'pmta-statistics/{server}';
@@ -57,6 +65,7 @@ class PmtaServerDetailPage extends Page
     {
         if (in_array($days, [1, 7, 14, 30], true)) {
             $this->selectedPeriod = $days;
+            $this->dispatch('historical-data-updated', data: $this->getHistoricalChartData());
         }
     }
 

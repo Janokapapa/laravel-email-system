@@ -62,6 +62,8 @@ class EmailSystemServiceProvider extends ServiceProvider
                 Console\Commands\DispatchScheduledCampaigns::class,
                 Console\Commands\MigrateOemproLists::class,
                 Console\Commands\ImportOemproSuppressions::class,
+                Console\Commands\PrunePmtaStats::class,
+                Console\Commands\BackfillPmtaStats::class,
             ]);
         }
     }
