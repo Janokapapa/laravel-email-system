@@ -75,8 +75,10 @@ trait PmtaHistoricalChartData
             $d = (int) $row->delivered;
             $b = (int) $row->bounced;
             $delivered[] = $d;
+            // Rate is meaningful only when there was at least one successful delivery.
+            // 0% on a no-send day is misleading and visually noisy in the chart.
             $total = $d + $b;
-            $rate[] = $total > 0 ? round($d / $total * 100, 2) : null;
+            $rate[] = $d > 0 ? round($d / $total * 100, 2) : null;
         }
 
         return ['labels' => $labels, 'delivered' => $delivered, 'rate' => $rate];
@@ -145,8 +147,10 @@ trait PmtaHistoricalChartData
             $d = $stats['delivered'];
             $b = $stats['bounced'];
             $delivered[] = $d;
+            // Rate is meaningful only when there was at least one successful delivery.
+            // 0% on a no-send day is misleading and visually noisy in the chart.
             $total = $d + $b;
-            $rate[] = $total > 0 ? round($d / $total * 100, 2) : null;
+            $rate[] = $d > 0 ? round($d / $total * 100, 2) : null;
         }
 
         return ['labels' => $labels, 'delivered' => $delivered, 'rate' => $rate];
