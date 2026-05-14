@@ -3,6 +3,7 @@
 use Illuminate\Support\Facades\Route;
 use JanDev\EmailSystem\Http\Controllers\MailgunWebhookController;
 use JanDev\EmailSystem\Http\Controllers\PmtaBounceController;
+use JanDev\EmailSystem\Http\Controllers\PmtaBounceCountersController;
 use JanDev\EmailSystem\Http\Controllers\PmtaStatsController;
 use JanDev\EmailSystem\Http\Controllers\Api\AudienceGroupController;
 use JanDev\EmailSystem\Http\Controllers\Api\AudienceUserController;
@@ -14,6 +15,9 @@ Route::post('/webhook/mailgun', [MailgunWebhookController::class, 'handle'])
 
 Route::post('/webhook/pmta-bounce', [PmtaBounceController::class, 'handle'])
     ->name('email-system.webhook.pmta-bounce');
+
+Route::post('/webhook/pmta-bounce-counters', [PmtaBounceCountersController::class, 'handle'])
+    ->name('email-system.webhook.pmta-bounce-counters');
 
 Route::post('/webhook/pmta-stats', [PmtaStatsController::class, 'handle'])
     ->name('email-system.webhook.pmta-stats');

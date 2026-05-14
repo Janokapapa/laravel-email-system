@@ -64,6 +64,7 @@ class EmailSystemServiceProvider extends ServiceProvider
                 Console\Commands\ImportOemproSuppressions::class,
                 Console\Commands\PrunePmtaStats::class,
                 Console\Commands\BackfillPmtaStats::class,
+                Console\Commands\PmtaBounceSummary::class,
             ]);
         }
     }

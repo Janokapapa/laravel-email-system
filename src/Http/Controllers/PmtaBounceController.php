@@ -40,6 +40,18 @@ class PmtaBounceController extends Controller
         // Use detailed reason from PMTA if provided, fallback to generic
         $bounceReason = trim($request->input('reason', '')) ?: 'PMTA hard bounce';
 
+        // Validate optional server field against the configured PMTA server list.
+        // Empty/missing server is allowed for backward compatibility — pre-upgrade
+        // PMTA scripts won't send this field yet.
+        $server = trim((string) $request->input('server', ''));
+        if ($server !== '') {
+            $allowedServers = config('email-system.pmta.servers', []);
+            if (!in_array($server, $allowedServers, true)) {
+                return response()->json(['error' => 'Invalid server'], 400);
+            }
+        }
+        $sourceDomain = trim((string) $request->input('source_domain', '')) ?: null;
+
         // Save to global bounce registry (regardless of whether email exists in audience lists)
         BouncedEmail::updateOrCreate(
             ['email' => $email],
@@ -47,6 +59,8 @@ class PmtaBounceController extends Controller
                 'bounce_type' => 'hard',
                 'bounce_reason' => $bounceReason,
                 'source' => 'pmta',
+                'pmta_server' => $server ?: null,
+                'source_domain' => $sourceDomain,
                 'bounced_at' => now(),
             ]
         );

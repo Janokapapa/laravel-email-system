@@ -66,6 +66,16 @@ class BouncedEmailResource extends Resource
                         default => 'gray',
                     })
                     ->sortable(),
+                TextColumn::make('pmta_server')
+                    ->label(__('PMTA Server'))
+                    ->badge()
+                    ->sortable()
+                    ->toggleable(),
+                TextColumn::make('source_domain')
+                    ->label(__('Source Domain'))
+                    ->searchable()
+                    ->sortable()
+                    ->toggleable(),
                 TextColumn::make('bounce_reason')
                     ->label(__('Reason'))
                     ->limit(60)
@@ -92,6 +102,11 @@ class BouncedEmailResource extends Resource
                     ->options(fn () => BouncedEmail::query()
                         ->distinct()
                         ->pluck('source', 'source')
+                        ->toArray()),
+                SelectFilter::make('pmta_server')
+                    ->label(__('PMTA Server'))
+                    ->options(fn () => collect(config('email-system.pmta.servers', []))
+                        ->mapWithKeys(fn ($s) => [$s => $s])
                         ->toArray()),
             ]);
     }

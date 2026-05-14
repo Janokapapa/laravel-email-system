@@ -11,6 +11,8 @@ class BouncedEmail extends Model
         'bounce_type',
         'bounce_reason',
         'source',
+        'pmta_server',
+        'source_domain',
         'bounced_at',
     ];
 

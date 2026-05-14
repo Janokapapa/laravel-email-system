@@ -52,6 +52,23 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Telegram Notifier
+    |--------------------------------------------------------------------------
+    |
+    | Used by scheduled commands (e.g. PmtaBounceSummary) to push aggregated
+    | notifications to a Telegram chat. admin_url is embedded in messages as
+    | a link to the Filament admin panel.
+    |
+    */
+    'telegram' => [
+        'enabled' => env('EMAIL_SYSTEM_TELEGRAM_ENABLED', false),
+        'bot_token' => env('EMAIL_SYSTEM_TELEGRAM_BOT_TOKEN'),
+        'chat_id' => env('EMAIL_SYSTEM_TELEGRAM_CHAT_ID'),
+        'admin_url' => env('EMAIL_SYSTEM_ADMIN_URL'),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | From Address Configuration
     |--------------------------------------------------------------------------
     */
