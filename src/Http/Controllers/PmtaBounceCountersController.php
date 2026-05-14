@@ -77,17 +77,21 @@ class PmtaBounceCountersController extends Controller
         }
 
         if (!empty($prepared)) {
-            // Single multi-row INSERT ... AS new ON DUPLICATE KEY UPDATE — one
-            // round-trip, atomic. MySQL 8.0.20+ alias syntax (forward-compat).
+            // Single multi-row INSERT ... ON DUPLICATE KEY UPDATE — one round-trip, atomic.
+            // We use the classic `VALUES(count)` function reference (not the MySQL 8.0.20+
+            // alias syntax `AS new`) because production runs MariaDB 10.11 which does NOT
+            // implement the alias syntax. `VALUES()` works on both MySQL and MariaDB and
+            // is the only portable form. MySQL deprecated VALUES() in 8.0.20 — if we ever
+            // upgrade prod to MySQL 9.x (no MariaDB), switch back to the alias syntax.
             $placeholders = implode(',', array_fill(0, count($prepared), '(?, ?, ?, ?, NOW(), NOW())'));
             $bindings = array_merge(...array_map(fn ($row) => $row, $prepared));
 
             DB::statement(
                 "INSERT INTO pmta_bounce_counters
                     (server, bounce_cat, counter_hour, count, created_at, updated_at)
-                 VALUES {$placeholders} AS new
+                 VALUES {$placeholders}
                  ON DUPLICATE KEY UPDATE
-                    count = pmta_bounce_counters.count + new.count,
+                    count = count + VALUES(count),
                     updated_at = NOW()",
                 $bindings
             );
