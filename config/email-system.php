@@ -81,6 +81,19 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Force Unsubscribe Link
+    |--------------------------------------------------------------------------
+    |
+    | If true, automatically appends an unsubscribe placeholder to the end of
+    | any email content that does not already contain {{unsubscribe=...}} or
+    | {{unsubscribe_url}}. Default false (preserves existing behaviour for
+    | projects that intentionally omit the link, e.g. transactional emails).
+    |
+    */
+    'force_unsubscribe_link' => env('EMAIL_SYSTEM_FORCE_UNSUBSCRIBE_LINK', false),
+
+    /*
+    |--------------------------------------------------------------------------
     | Branding
     |--------------------------------------------------------------------------
     */

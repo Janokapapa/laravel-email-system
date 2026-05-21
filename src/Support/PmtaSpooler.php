@@ -107,6 +107,8 @@ class PmtaSpooler
                 $rawText = ContentTypeConverter::htmlToText($rawText);
             }
 
+            $rawText = self::ensureUnsubscribePlaceholder($rawText, false);
+
             // Replace unsubscribe placeholders as plain text URLs
             if ($unsubscribeUrl) {
                 $rawText = preg_replace('/\{\{unsubscribe=(.+?)\}\}/', '$1: ' . $unsubscribeUrl, $rawText);
@@ -141,6 +143,8 @@ EOT;
 
             // Resolve relative URLs to absolute before any link processing
             $rawHtml = self::resolveRelativeUrls($rawHtml);
+
+            $rawHtml = self::ensureUnsubscribePlaceholder($rawHtml, true);
 
             // Replace unsubscribe placeholders in the HTML
             if ($unsubscribeUrl) {
@@ -177,6 +181,7 @@ EOT;
             // Generate plain text part: resolve unsubscribe placeholders as URLs,
             // convert block elements to newlines, strip tags, decode HTML entities.
             $rawText = (string) $emailLog->message;
+            $rawText = self::ensureUnsubscribePlaceholder($rawText, true);
             if ($unsubscribeUrl) {
                 $rawText = preg_replace('/\{\{unsubscribe=(.+?)\}\}/', '$1: ' . $unsubscribeUrl, $rawText);
                 $rawText = str_replace('{{unsubscribe_url}}', $unsubscribeUrl, $rawText);
@@ -298,6 +303,38 @@ EOT;
         $domainHyphened = str_replace('.', '-', $fromDomain);
         $result = "bounce-{$emailLogId}-{$domainHyphened}@{$bounceDomain}";
         return str_replace(["\r", "\n"], '', $result);
+    }
+
+    /**
+     * Append a default unsubscribe placeholder to content if none is present
+     * and config('email-system.force_unsubscribe_link') is enabled.
+     *
+     * Safe to call on every email — it's a no-op when the flag is off or when
+     * the content already contains {{unsubscribe=...}} or {{unsubscribe_url}}.
+     */
+    public static function ensureUnsubscribePlaceholder(string $content, bool $isHtml = true): string
+    {
+        if (!config('email-system.force_unsubscribe_link', false)) {
+            return $content;
+        }
+
+        if (str_contains($content, '{{unsubscribe=') || str_contains($content, '{{unsubscribe_url}}')) {
+            return $content;
+        }
+
+        $placeholder = '{{unsubscribe=' . __('Unsubscribe') . '}}';
+
+        if (!$isHtml) {
+            return rtrim($content) . "\n\n" . $placeholder;
+        }
+
+        $block = '<p style="text-align:center;font-size:12px;color:#888;margin:24px 0;">' . $placeholder . '</p>';
+
+        if (preg_match('/<\/body\s*>/i', $content)) {
+            return preg_replace('/<\/body\s*>/i', $block . '</body>', $content, 1);
+        }
+
+        return $content . $block;
     }
 
     /**

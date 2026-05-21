@@ -207,10 +207,12 @@ class SendQueuedEmails implements ShouldQueue
 
         if ($isPlainText) {
             $processed = (string) $originalMessage;
+            $processed = PmtaSpooler::ensureUnsubscribePlaceholder($processed, false);
             $processed = preg_replace('/\{\{unsubscribe=(.+?)\}\}/', '$1: ' . $unsubscribeUrl, $processed);
             $processed = str_replace('{{unsubscribe_url}}', $unsubscribeUrl ?? '', $processed);
         } else {
             $processed = PmtaSpooler::resolveRelativeUrls((string) $originalMessage);
+            $processed = PmtaSpooler::ensureUnsubscribePlaceholder($processed, true);
             if ($unsubscribeUrl) {
                 $processed = PmtaSpooler::replaceUnsubscribeLinks($processed, $unsubscribeUrl);
             } else {
@@ -320,6 +322,7 @@ class SendQueuedEmails implements ShouldQueue
         // Process message content: resolve relative URLs + unsubscribe placeholders
         $messageContent = (string) $firstEmail->message;
         $messageContent = PmtaSpooler::resolveRelativeUrls($messageContent);
+        $messageContent = PmtaSpooler::ensureUnsubscribePlaceholder($messageContent, $contentType !== 'text');
         $unsubscribeVar = '%recipient.unsubscribe_url%';
         $messageContent = PmtaSpooler::replaceUnsubscribeLinks($messageContent, $unsubscribeVar);
 

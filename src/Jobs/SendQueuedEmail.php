@@ -126,6 +126,7 @@ class SendQueuedEmail implements ShouldQueue
             // Process message in-memory (not persisted)
             $originalMessage = $this->emailLog->message;
             $processed = (string) $originalMessage;
+            $processed = PmtaSpooler::ensureUnsubscribePlaceholder($processed, !$isPlainText);
 
             if ($isPlainText) {
                 // Plain text: replace unsubscribe placeholders as URLs
@@ -201,6 +202,7 @@ class SendQueuedEmail implements ShouldQueue
             $domain = $senderConfig['mailgun_domain'] ?? config('email-system.mailgun.domain');
 
             $messageContent = (string) $this->emailLog->message;
+            $messageContent = PmtaSpooler::ensureUnsubscribePlaceholder($messageContent, !$isPlainText);
 
             $fromAddress = $senderConfig['from_address'] ?? config('email-system.from.address');
             $fromName = $senderConfig['from_name'] ?? config('email-system.from.name');
