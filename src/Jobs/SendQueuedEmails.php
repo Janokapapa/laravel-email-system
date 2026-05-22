@@ -15,6 +15,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Mailgun\Mailgun;
@@ -307,14 +308,17 @@ class SendQueuedEmails implements ShouldQueue
 
         $recipients = [];
         $recipientVariables = [];
+        $messageIdMap = []; // email_log_id => unique per-recipient Message-Id (matches webhook events)
 
         foreach ($emails as $email) {
+            $uniqueMsgId = bin2hex(random_bytes(16)) . '@' . $domain;
             $recipients[] = $email->recipient;
             $recipientVariables[$email->recipient] = [
                 'id' => $email->id,
                 'unsubscribe_url' => $this->getUnsubscribeUrl($email),
-                'message_id' => bin2hex(random_bytes(16)) . '@' . $domain,
+                'message_id' => $uniqueMsgId,
             ];
+            $messageIdMap[$email->id] = $uniqueMsgId;
         }
 
         $contentType = $firstEmail->content_type ?? 'html';
@@ -359,14 +363,19 @@ class SendQueuedEmails implements ShouldQueue
             $response = $mgClient->messages()->send($domain, $params);
 
             if ($response->getId()) {
-                $messageId = trim($response->getId(), '<>');
-                $emailIds = $emails->pluck('id')->toArray();
+                $emailIds = array_keys($messageIdMap);
 
-                EmailLog::whereIn('id', $emailIds)->update([
-                    'status' => 'sent',
-                    'error' => null,
-                    'mailgun_message_id' => $messageId,
-                ]);
+                // Per-recipient Message-Id update (one CASE statement = single query)
+                $cases = collect($messageIdMap)->map(
+                    fn ($msgId, $id) => "WHEN {$id} THEN " . DB::getPdo()->quote($msgId)
+                )->implode(' ');
+                $idsList = implode(',', $emailIds);
+
+                DB::statement("UPDATE email_logs
+                    SET mailgun_message_id = CASE id {$cases} END,
+                        status = 'sent',
+                        error = NULL
+                    WHERE id IN ({$idsList})");
 
                 $recipientEmails = $emails->pluck('recipient')->toArray();
                 AudienceUser::whereIn('email', $recipientEmails)
