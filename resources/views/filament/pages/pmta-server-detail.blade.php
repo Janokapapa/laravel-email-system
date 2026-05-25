@@ -172,14 +172,26 @@
                         <div class="cv-stat-label">Delivered</div>
                     </div>
                     <div>
-                        <div class="cv-stat-num" style="color:#ef4444">{{ number_format($serverData['bounced_stop']) }}</div>
-                        <div class="cv-stat-label">Hard Bounce</div>
+                        <div class="cv-stat-num" style="color:#ef4444">{{ number_format($serverData['bounced_stop_hard']) }}</div>
+                        <div class="cv-stat-label" title="DSN 5.x.x — mailbox/server permanently refused">Hard Bounce (5.x.x)</div>
+                    </div>
+                    <div>
+                        <div class="cv-stat-num" style="color:#a78bfa">{{ number_format($serverData['bounced_stop_queue']) }}</div>
+                        <div class="cv-stat-label" title="DSN 4.x.x — PMTA queue lifetime expired (typically IP block / connection refused). NOT a real hard bounce.">Queue Expired (4.x.x)</div>
                     </div>
                     <div>
                         <div class="cv-stat-num" style="color:#f59e0b">{{ number_format($serverData['bounced_go']) }}</div>
-                        <div class="cv-stat-label">Soft Bounce</div>
+                        <div class="cv-stat-label">Soft Bounce (GO)</div>
                     </div>
-                    <div>
+                </div>
+                <div class="cv-grid cv-grid-2" style="margin-top:16px;align-items:center">
+                    <div class="cv-sub" style="font-size:12px">
+                        Stop total: <b>{{ number_format($serverData['bounced_stop']) }}</b>
+                        (= {{ number_format($serverData['bounced_stop_hard']) }} hard + {{ number_format($serverData['bounced_stop_queue']) }} queue-expired
+                        @php $unclassified = $serverData['bounced_stop'] - $serverData['bounced_stop_hard'] - $serverData['bounced_stop_queue']; @endphp
+                        @if($unclassified > 0) + {{ number_format($unclassified) }} unclassified @endif)
+                    </div>
+                    <div style="text-align:right">
                         <span class="cv-rate-badge" style="background:{{ $rateBg }};color:{{ $rateText }};font-size:20px;padding:8px 16px">
                             {{ $serverData['rate'] }}%
                         </span>

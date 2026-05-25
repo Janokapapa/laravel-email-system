@@ -6,10 +6,12 @@ use BackedEnum;
 use Filament\Pages\Page;
 use Illuminate\Support\Facades\Cache;
 use JanDev\EmailSystem\Filament\Concerns\PmtaHistoricalChartData;
+use JanDev\EmailSystem\Filament\Concerns\PmtaPeriodDataLoader;
 
 class PmtaServerDetailPage extends Page
 {
     use PmtaHistoricalChartData;
+    use PmtaPeriodDataLoader;
 
     protected function historicalServerList(): array
     {
@@ -71,15 +73,18 @@ class PmtaServerDetailPage extends Page
 
     public function getServerData(): ?array
     {
-        $data = Cache::get("pmta_stats:{$this->server}:{$this->selectedPeriod}");
+        $data = $this->loadPeriodPayload($this->server, $this->selectedPeriod);
 
         if ($data === null) {
             return null;
         }
 
-        $delivered = $data['totals']['delivered'] ?? 0;
-        $bouncedStop = $data['totals']['bounced_stop'] ?? 0;
-        $bouncedGo = $data['totals']['bounced_go'] ?? 0;
+        $totals = $data['totals'] ?? [];
+        $delivered = $totals['delivered'] ?? 0;
+        $bouncedStop = $totals['bounced_stop'] ?? 0;
+        $bouncedStopHard = $totals['bounced_stop_hard'] ?? 0;
+        $bouncedStopQueue = $totals['bounced_stop_queue'] ?? 0;
+        $bouncedGo = $totals['bounced_go'] ?? 0;
         $bounced = $bouncedStop + $bouncedGo;
         $total = $delivered + $bounced;
         $rate = $total > 0 ? round($delivered / $total * 100, 1) : 0;
@@ -87,6 +92,8 @@ class PmtaServerDetailPage extends Page
         return [
             'delivered' => $delivered,
             'bounced_stop' => $bouncedStop,
+            'bounced_stop_hard' => $bouncedStopHard,
+            'bounced_stop_queue' => $bouncedStopQueue,
             'bounced_go' => $bouncedGo,
             'bounced' => $bounced,
             'total' => $total,
@@ -99,7 +106,7 @@ class PmtaServerDetailPage extends Page
 
     public function getDomainTableData(): array
     {
-        $data = Cache::get("pmta_stats:{$this->server}:{$this->selectedPeriod}");
+        $data = $this->loadPeriodPayload($this->server, $this->selectedPeriod);
 
         if ($data === null || empty($data['domains'])) {
             return [];
@@ -127,7 +134,7 @@ class PmtaServerDetailPage extends Page
 
     public function getIpTableData(): array
     {
-        $data = Cache::get("pmta_stats:{$this->server}:{$this->selectedPeriod}");
+        $data = $this->loadPeriodPayload($this->server, $this->selectedPeriod);
 
         if ($data === null || empty($data['ips'])) {
             return [];
@@ -150,7 +157,6 @@ class PmtaServerDetailPage extends Page
             ];
         }
 
-        // Sort by delivery rate ascending (worst first)
         usort($rows, fn ($a, $b) => $a['rate'] <=> $b['rate']);
 
         return $rows;
@@ -158,7 +164,7 @@ class PmtaServerDetailPage extends Page
 
     public function getChartData(): array
     {
-        $data = Cache::get("pmta_stats:{$this->server}:{$this->selectedPeriod}");
+        $data = $this->loadPeriodPayload($this->server, $this->selectedPeriod);
 
         if ($data === null || empty($data['domains'])) {
             return ['labels' => [], 'delivered' => [], 'bounced' => []];

@@ -4,12 +4,13 @@ namespace JanDev\EmailSystem\Filament\Pages;
 
 use BackedEnum;
 use Filament\Pages\Page;
-use Illuminate\Support\Facades\Cache;
 use JanDev\EmailSystem\Filament\Concerns\PmtaHistoricalChartData;
+use JanDev\EmailSystem\Filament\Concerns\PmtaPeriodDataLoader;
 
 class PmtaStatisticsPage extends Page
 {
     use PmtaHistoricalChartData;
+    use PmtaPeriodDataLoader;
 
     protected static string|BackedEnum|null $navigationIcon = 'heroicon-o-chart-bar';
 
@@ -60,15 +61,18 @@ class PmtaStatisticsPage extends Page
         $result = [];
 
         foreach ($servers as $server) {
-            $data = Cache::get("pmta_stats:{$server}:{$this->selectedPeriod}");
+            $data = $this->loadPeriodPayload($server, $this->selectedPeriod);
 
             if ($data === null) {
                 continue;
             }
 
-            $delivered = $data['totals']['delivered'] ?? 0;
-            $bouncedStop = $data['totals']['bounced_stop'] ?? 0;
-            $bouncedGo = $data['totals']['bounced_go'] ?? 0;
+            $totals = $data['totals'] ?? [];
+            $delivered = $totals['delivered'] ?? 0;
+            $bouncedStop = $totals['bounced_stop'] ?? 0;
+            $bouncedStopHard = $totals['bounced_stop_hard'] ?? 0;
+            $bouncedStopQueue = $totals['bounced_stop_queue'] ?? 0;
+            $bouncedGo = $totals['bounced_go'] ?? 0;
             $bounced = $bouncedStop + $bouncedGo;
             $total = $delivered + $bounced;
             $rate = $total > 0 ? round($delivered / $total * 100, 1) : 0;
@@ -78,6 +82,8 @@ class PmtaStatisticsPage extends Page
                 'label' => self::labelFor($server),
                 'delivered' => $delivered,
                 'bounced_stop' => $bouncedStop,
+                'bounced_stop_hard' => $bouncedStopHard,
+                'bounced_stop_queue' => $bouncedStopQueue,
                 'bounced_go' => $bouncedGo,
                 'bounced' => $bounced,
                 'total' => $total,
@@ -98,7 +104,7 @@ class PmtaStatisticsPage extends Page
         $bounced = array_fill_keys($domainGroups, 0);
 
         foreach ($servers as $server) {
-            $data = Cache::get("pmta_stats:{$server}:{$this->selectedPeriod}");
+            $data = $this->loadPeriodPayload($server, $this->selectedPeriod);
 
             if ($data === null || empty($data['domains'])) {
                 continue;

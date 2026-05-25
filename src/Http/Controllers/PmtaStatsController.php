@@ -77,6 +77,12 @@ class PmtaStatsController extends Controller
                     return response()->json(['error' => "Period {$days}: totals.{$key} must be a non-negative integer"], 422);
                 }
             }
+            // Optional split fields (backward compatible). When present they must be non-negative ints.
+            foreach (['bounced_stop_hard', 'bounced_stop_queue'] as $key) {
+                if (array_key_exists($key, $totals) && (!is_int($totals[$key]) || $totals[$key] < 0)) {
+                    return response()->json(['error' => "Period {$days}: totals.{$key} must be a non-negative integer"], 422);
+                }
+            }
 
             if (!isset($periodData['domains']) || !is_array($periodData['domains'])) {
                 return response()->json(['error' => "Period {$days}: domains required"], 422);
@@ -128,6 +134,11 @@ class PmtaStatsController extends Controller
                         return response()->json(['error' => "Bucket {$bucketIso}: totals.{$key} must be a non-negative integer"], 422);
                     }
                 }
+                foreach (['bounced_stop_hard', 'bounced_stop_queue'] as $key) {
+                    if (array_key_exists($key, $bucketData['totals']) && (!is_int($bucketData['totals'][$key]) || $bucketData['totals'][$key] < 0)) {
+                        return response()->json(['error' => "Bucket {$bucketIso}: totals.{$key} must be a non-negative integer"], 422);
+                    }
+                }
 
                 if (!isset($bucketData['domains']) || !is_array($bucketData['domains'])) {
                     return response()->json(['error' => "Bucket {$bucketIso}: domains required"], 422);
@@ -152,7 +163,10 @@ class PmtaStatsController extends Controller
                     'server' => $serverName,
                     'period_days' => (int) $days,
                     'generated_at' => $validated['generated_at'] ?? null,
-                    'totals' => $periodData['totals'],
+                    'totals' => array_merge(
+                        ['bounced_stop_hard' => 0, 'bounced_stop_queue' => 0],
+                        $periodData['totals']
+                    ),
                     'domains' => $periodData['domains'],
                     'ips' => $periodData['ips'] ?? [],
                 ], now()->addHours(2));
@@ -174,6 +188,8 @@ class PmtaStatsController extends Controller
                     'snapshot_at' => $generatedAt,
                     'delivered' => $periodData['totals']['delivered'],
                     'bounced_stop' => $periodData['totals']['bounced_stop'],
+                    'bounced_stop_hard' => $periodData['totals']['bounced_stop_hard'] ?? 0,
+                    'bounced_stop_queue' => $periodData['totals']['bounced_stop_queue'] ?? 0,
                     'bounced_go' => $periodData['totals']['bounced_go'],
                     'domains' => $periodData['domains'],
                     'ips' => $periodData['ips'] ?? [],
@@ -186,21 +202,25 @@ class PmtaStatsController extends Controller
 
                 DB::statement(
                     'INSERT INTO pmta_stats_buckets
-                        (server, granularity, bucket_start, delivered, bounced_stop, bounced_go, domains, ips, created_at, updated_at)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+                        (server, granularity, bucket_start, delivered, bounced_stop, bounced_stop_hard, bounced_stop_queue, bounced_go, domains, ips, created_at, updated_at)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
                      ON DUPLICATE KEY UPDATE
-                        delivered    = GREATEST(delivered, VALUES(delivered)),
-                        bounced_stop = GREATEST(bounced_stop, VALUES(bounced_stop)),
-                        bounced_go   = GREATEST(bounced_go, VALUES(bounced_go)),
-                        domains      = VALUES(domains),
-                        ips          = VALUES(ips),
-                        updated_at   = NOW()',
+                        delivered          = GREATEST(delivered, VALUES(delivered)),
+                        bounced_stop       = GREATEST(bounced_stop, VALUES(bounced_stop)),
+                        bounced_stop_hard  = GREATEST(bounced_stop_hard, VALUES(bounced_stop_hard)),
+                        bounced_stop_queue = GREATEST(bounced_stop_queue, VALUES(bounced_stop_queue)),
+                        bounced_go         = GREATEST(bounced_go, VALUES(bounced_go)),
+                        domains            = VALUES(domains),
+                        ips                = VALUES(ips),
+                        updated_at         = NOW()',
                     [
                         $serverName,
                         $granularity,
                         $bucketStart,
                         (int) $bucketData['totals']['delivered'],
                         (int) $bucketData['totals']['bounced_stop'],
+                        (int) ($bucketData['totals']['bounced_stop_hard'] ?? 0),
+                        (int) ($bucketData['totals']['bounced_stop_queue'] ?? 0),
                         (int) $bucketData['totals']['bounced_go'],
                         json_encode($bucketData['domains'], JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE),
                         json_encode($bucketData['ips'] ?? [], JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE),

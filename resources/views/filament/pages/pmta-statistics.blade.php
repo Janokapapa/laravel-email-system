@@ -197,18 +197,22 @@
                                     {{ $s['rate'] }}%
                                 </span>
                             </div>
-                            <div class="cv-grid cv-grid-3" style="gap:12px">
+                            <div class="cv-grid" style="grid-template-columns:repeat(4,1fr);gap:8px">
                                 <div>
-                                    <div class="cv-stat-num" style="font-size:18px">{{ number_format($s['delivered']) }}</div>
+                                    <div class="cv-stat-num" style="font-size:16px">{{ number_format($s['delivered']) }}</div>
                                     <div class="cv-stat-label">Delivered</div>
                                 </div>
                                 <div>
-                                    <div class="cv-stat-num" style="font-size:18px;color:#ef4444">{{ number_format($s['bounced_stop']) }}</div>
-                                    <div class="cv-stat-label">Hard bounce</div>
+                                    <div class="cv-stat-num" style="font-size:16px;color:#ef4444">{{ number_format($s['bounced_stop_hard']) }}</div>
+                                    <div class="cv-stat-label" title="DSN 5.x.x">Hard (5xx)</div>
                                 </div>
                                 <div>
-                                    <div class="cv-stat-num" style="font-size:18px;color:#f59e0b">{{ number_format($s['bounced_go']) }}</div>
-                                    <div class="cv-stat-label">Soft bounce</div>
+                                    <div class="cv-stat-num" style="font-size:16px;color:#a78bfa">{{ number_format($s['bounced_stop_queue']) }}</div>
+                                    <div class="cv-stat-label" title="DSN 4.x.x — queue lifetime expired, typically IP block">Queue (4xx)</div>
+                                </div>
+                                <div>
+                                    <div class="cv-stat-num" style="font-size:16px;color:#f59e0b">{{ number_format($s['bounced_go']) }}</div>
+                                    <div class="cv-stat-label">Soft (GO)</div>
                                 </div>
                             </div>
                             @if($s['generated_at'])
