@@ -245,38 +245,62 @@
             {{-- Domain chart --}}
             <div class="cv-card cv-pad" wire:ignore>
                 <h3 class="cv-section-title" style="margin-bottom:16px">Domain Volume</h3>
-                @if(count($chart['labels']) > 0)
-                    <div style="position:relative;height:220px">
-                        <canvas id="pmta-server-domain-chart"></canvas>
-                    </div>
-                    <script>
-                        document.addEventListener('DOMContentLoaded', function() {
-                            var canvas = document.getElementById('pmta-server-domain-chart');
-                            if (canvas && typeof Chart !== 'undefined') {
-                                new Chart(canvas, {
-                                    type: 'bar',
-                                    data: {
-                                        labels: @js($chart['labels']),
-                                        datasets: [
-                                            { label: 'Delivered', data: @js($chart['delivered']), backgroundColor: '#2ecc71' },
-                                            { label: 'Bounced', data: @js($chart['bounced']), backgroundColor: '#e74c3c' }
-                                        ]
-                                    },
-                                    options: {
-                                        indexAxis: 'y',
-                                        responsive: true,
-                                        maintainAspectRatio: false,
-                                        scales: { x: { stacked: true }, y: { stacked: true } },
-                                        plugins: { legend: { position: 'bottom' } }
-                                    }
-                                });
+                <div id="pmta-server-domain-empty" class="cv-sub" style="{{ count($chart['labels']) === 0 ? '' : 'display:none' }}">
+                    No chart data available.
+                </div>
+                <div id="pmta-server-domain-wrap" style="position:relative;height:220px;{{ count($chart['labels']) === 0 ? 'display:none' : '' }}">
+                    <canvas id="pmta-server-domain-chart"></canvas>
+                </div>
+            </div>
+
+            @script
+            <script>
+                (function () {
+                    let pmtaDomainChart = null;
+                    const initial = @js($chart);
+
+                    function renderDomainChart(data) {
+                        const empty = document.getElementById('pmta-server-domain-empty');
+                        const wrap  = document.getElementById('pmta-server-domain-wrap');
+                        const canvas = document.getElementById('pmta-server-domain-chart');
+                        if (!canvas || typeof Chart === 'undefined') return;
+
+                        const isEmpty = !data || !data.labels || data.labels.length === 0;
+                        if (empty) empty.style.display = isEmpty ? '' : 'none';
+                        if (wrap)  wrap.style.display  = isEmpty ? 'none' : '';
+
+                        if (pmtaDomainChart) { pmtaDomainChart.destroy(); pmtaDomainChart = null; }
+                        if (isEmpty) return;
+
+                        pmtaDomainChart = new Chart(canvas, {
+                            type: 'bar',
+                            data: {
+                                labels: data.labels,
+                                datasets: [
+                                    { label: 'Delivered', data: data.delivered, backgroundColor: '#2ecc71' },
+                                    { label: 'Bounced', data: data.bounced, backgroundColor: '#e74c3c' }
+                                ]
+                            },
+                            options: {
+                                indexAxis: 'y',
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                scales: { x: { stacked: true }, y: { stacked: true } },
+                                plugins: { legend: { position: 'bottom' } }
                             }
                         });
-                    </script>
-                @else
-                    <div class="cv-sub">No chart data available.</div>
-                @endif
-            </div>
+                    }
+
+                    renderDomainChart(initial);
+
+                    Livewire.on('domain-chart-updated', (event) => {
+                        const payload = Array.isArray(event) ? event[0] : event;
+                        const data = payload && payload.data ? payload.data : payload;
+                        renderDomainChart(data);
+                    });
+                })();
+            </script>
+            @endscript
         </div>
 
         {{-- IP table --}}
