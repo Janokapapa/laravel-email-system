@@ -36,11 +36,15 @@ return new class extends Migration
 
         // ── Safety assertions: verify groups exist by ID ──────────────
         // Accept both old names ("X depositors") and already-renamed slugs
+        // This is a data-only migration for a specific production environment's
+        // casino audience groups (IDs 156-165). In any environment without them
+        // (e.g. a non-casino app like dungeons), skip it gracefully instead of
+        // aborting the whole migration run.
         $requiredIds = [156, 157, 158, 159, 160, 161, 162, 163, 165];
         foreach ($requiredIds as $id) {
             $exists = DB::table('email_audience_groups')->where('id', $id)->exists();
             if (!$exists) {
-                throw new \RuntimeException("Migration aborted: audience group ID {$id} not found.");
+                return;
             }
         }
 
