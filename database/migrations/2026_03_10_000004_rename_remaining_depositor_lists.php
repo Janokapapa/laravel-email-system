@@ -26,7 +26,9 @@ return new class extends Migration
             $group = DB::table('email_audience_groups')->where('id', $id)->first();
 
             if (!$group) {
-                throw new \RuntimeException("Migration aborted: audience group ID {$id} not found.");
+                // Env without these production casino groups (e.g. dungeons):
+                // data-only rename migration, skip gracefully.
+                return;
             }
             if ($group->name !== $names['from']) {
                 // Already renamed or different name — skip
