@@ -45,51 +45,9 @@ class ImportOemproSuppressions extends Command
             $oemDb->table('oempro_suppression_list')
                 ->orderBy('EmailAddress')
                 ->chunk(1000, function ($suppressions) use ($dryRun, &$imported, &$skipped, $now) {
-                    $bouncedRows = [];
-
-                    foreach ($suppressions as $row) {
-                        $bounceType = self::SOURCE_MAP[$row->SuppressionSource] ?? null;
-
-                        if (!$bounceType) {
-                            $skipped++;
-                            continue;
-                        }
-
-                        $email = strtolower(trim($row->EmailAddress));
-                        $bouncedRows[] = [
-                            'email'         => $email,
-                            'bounce_type'   => $bounceType,
-                            'bounce_reason' => 'OemPro suppression: ' . ($row->SuppressionSource ?? ''),
-                            'source'        => 'oempro',
-                            'bounced_at'    => $now,
-                            'created_at'    => $now,
-                            'updated_at'    => $now,
-                        ];
-
-                        $imported++;
-                    }
-
-                    if (!$dryRun && !empty($bouncedRows)) {
-                        // Bulk upsert bounced_emails
-                        DB::table('bounced_emails')->upsert(
-                            $bouncedRows,
-                            ['email'],
-                            ['bounce_type', 'bounce_reason', 'source', 'bounced_at', 'updated_at']
-                        );
-
-                        // Bulk mark audience_users as bounced
-                        $emails = array_column($bouncedRows, 'email');
-                        DB::table('audience_users')
-                            ->whereIn('email', $emails)
-                            ->where('bounced', false)
-                            ->update([
-                                'bounced'    => true,
-                                'is_active'  => false,
-                                'bounce_type' => 'hard',
-                                'bounced_at' => $now,
-                                'zerobounce_status' => 'bounced',
-                            ]);
-                    }
+                    [$chunkImported, $chunkSkipped] = $this->importChunk($suppressions, $dryRun, $now);
+                    $imported += $chunkImported;
+                    $skipped += $chunkSkipped;
 
                     $this->line("  Processed {$imported} suppressions...");
                 });
@@ -100,6 +58,63 @@ class ImportOemproSuppressions extends Command
         } finally {
             $this->closeTunnel();
         }
+    }
+
+    /**
+     * Import one chunk of suppression rows (bulk upsert + audience_users mark).
+     * Returns [imported, skipped].
+     */
+    public function importChunk(iterable $suppressions, bool $dryRun, string $now): array
+    {
+        $bouncedRows = [];
+        $imported = 0;
+        $skipped = 0;
+
+        foreach ($suppressions as $row) {
+            $bounceType = self::SOURCE_MAP[$row->SuppressionSource] ?? null;
+
+            if (!$bounceType) {
+                $skipped++;
+                continue;
+            }
+
+            $email = strtolower(trim($row->EmailAddress));
+            $bouncedRows[] = [
+                'email'         => $email,
+                'bounce_type'   => $bounceType,
+                'bounce_reason' => 'OemPro suppression: ' . ($row->SuppressionSource ?? ''),
+                'source'        => 'oempro',
+                'bounced_at'    => $now,
+                'created_at'    => $now,
+                'updated_at'    => $now,
+            ];
+
+            $imported++;
+        }
+
+        if (!$dryRun && !empty($bouncedRows)) {
+            // Bulk upsert bounced_emails
+            DB::table('bounced_emails')->upsert(
+                $bouncedRows,
+                ['email'],
+                ['bounce_type', 'bounce_reason', 'source', 'bounced_at', 'updated_at']
+            );
+
+            // Bulk mark audience_users as bounced
+            $emails = array_column($bouncedRows, 'email');
+            DB::table('audience_users')
+                ->whereIn('email', $emails)
+                ->where('bounced', false)
+                ->update([
+                    'bounced'    => true,
+                    'is_active'  => false,
+                    'bounce_type' => 'hard',
+                    'bounced_at' => $now,
+                    'zerobounce_status' => 'bounced',
+                ]);
+        }
+
+        return [$imported, $skipped];
     }
 
     public function openTunnel(): bool

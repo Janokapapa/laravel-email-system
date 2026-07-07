@@ -37,7 +37,7 @@ class PmtaStatisticsPage extends Page
             'caspmta1' => 'einformations.com',
             'caspmta2' => 'exoluton.com',
             'caspmta3' => 'wavebrix.com',
-            'caspmta4' => 'm1.onlinecasinoevents.com',
+            'caspmta4' => 'mailverto.com',
             'caspmta5' => 'missslotsclub.com',
         ];
     }

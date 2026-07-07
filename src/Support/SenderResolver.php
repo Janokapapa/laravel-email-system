@@ -292,6 +292,35 @@ class SenderResolver
     }
 
     /**
+     * Resolve a per-server, per-provider virtual-MTA override.
+     *
+     * Config shape (config/email-system.php → pmta.provider_virtual_mta):
+     *   ['caspmta4' => ['gmail' => 'icloudpool', 'yahoo' => 'icloudpool', 'icloud' => 'icloudpool']]
+     *
+     * Given the resolved PMTA server name and the recipient email, classifies the
+     * recipient's inbox provider via ProviderResolver and returns the configured
+     * vMTA override (e.g. a clean IP pool) for that server+provider, or null when
+     * no override is configured. Config/DB-driven so it can be enabled per
+     * server+provider without code changes.
+     */
+    public static function providerVirtualMta(?string $serverName, string $email): ?string
+    {
+        if ($serverName === null || $serverName === '') {
+            return null;
+        }
+
+        $map = config('email-system.pmta.provider_virtual_mta', []);
+        if (!is_array($map) || empty($map[$serverName]) || !is_array($map[$serverName])) {
+            return null;
+        }
+
+        $provider = ProviderResolver::resolve($email);
+        $vmta = $map[$serverName][$provider] ?? null;
+
+        return (is_string($vmta) && $vmta !== '') ? $vmta : null;
+    }
+
+    /**
      * Resolve the full PMTA config for a sender, merging server config with sender fields.
      * Priority for virtual_mta: sender's pmta_virtual_mta (if set) > server's virtual_mta.
      * Backward compat: if sender has inline pmta_host, use inline fields as fallback.

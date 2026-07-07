@@ -29,7 +29,7 @@ class PmtaSync extends Command
 
     public function handle(): int
     {
-        $spoolBase = storage_path('app/mailspool');
+        $spoolBase = config('email-system.pmta.spool_path') ?: storage_path('app/mailspool');
 
         // Ensure base dirs
         foreach (['outgoing', 'sent', 'failed'] as $dir) {

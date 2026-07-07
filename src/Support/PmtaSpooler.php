@@ -22,7 +22,7 @@ class PmtaSpooler
         private readonly ?array $serverConfig = null,
         private readonly ?string $serverName = null,
     ) {
-        $this->localBaseDir = $localBaseDir ?? storage_path('app/mailspool');
+        $this->localBaseDir = $localBaseDir ?? (config('email-system.pmta.spool_path') ?: storage_path('app/mailspool'));
     }
 
     public function ensureDirs(): void
@@ -71,10 +71,20 @@ class PmtaSpooler
         $fromName = $this->senderConfig['from_name'] ?? '';
         $replyTo = $this->senderConfig['reply_to'] ?? $fromAddress;
 
-        // Virtual MTA priority: sender override (if non-empty) > server config > fallback 'all'
-        $virtualMta = (isset($this->senderConfig['pmta_virtual_mta']) && $this->senderConfig['pmta_virtual_mta'] !== '')
-            ? $this->senderConfig['pmta_virtual_mta']
-            : ($this->serverConfig['virtual_mta'] ?? 'all');
+        // Virtual MTA priority:
+        //   1. sender explicit override (senderConfig['pmta_virtual_mta'] if non-empty)
+        //   2. per-server, per-provider override (config: pmta.provider_virtual_mta)
+        //   3. server config virtual_mta
+        //   4. fallback 'all'
+        // The provider override (2) beats the server default so a clean IP pool can
+        // be enforced per inbox-provider for deliverability. An explicit per-sender
+        // vMTA (1) is a deliberate manual choice and still wins over the policy map.
+        if (isset($this->senderConfig['pmta_virtual_mta']) && $this->senderConfig['pmta_virtual_mta'] !== '') {
+            $virtualMta = $this->senderConfig['pmta_virtual_mta'];
+        } else {
+            $virtualMta = SenderResolver::providerVirtualMta($this->serverName, $emailLog->recipient)
+                ?? ($this->serverConfig['virtual_mta'] ?? 'all');
+        }
 
         $fromDomain = substr(strrchr($fromAddress, '@'), 1) ?: 'localhost';
         $messageId = '<' . md5(uniqid()) . '@' . $fromDomain . '>';

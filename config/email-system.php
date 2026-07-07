@@ -48,6 +48,18 @@ return [
         'bounce_api_key' => env('PMTA_BOUNCE_API_KEY'),
         'servers' => ['caspmta1', 'caspmta2', 'caspmta3', 'caspmta4', 'caspmta5'],
         'stats_retention_days' => (int) env('PMTA_STATS_RETENTION_DAYS', 365),
+        // Spool base dir for outgoing/sent/failed EML files (null = storage/app/mailspool)
+        'spool_path' => env('EMAIL_SYSTEM_SPOOL_PATH'),
+
+        // Per-server, per-provider virtual-MTA override.
+        // Steers recipients of a given inbox provider (as classified by
+        // ProviderResolver: microsoft|yahoo|gmail|icloud|default) onto a specific
+        // vMTA (e.g. a clean IP pool) for the given PMTA server, overriding the
+        // server's default vMTA. Config/DB-driven — enable per server+provider
+        // without code changes. Providers not listed keep the server default.
+        // Precedence: sender pmta_virtual_mta (explicit) > this map > server default > 'all'.
+        // Shape: ['caspmta4' => ['gmail' => 'icloudpool', 'yahoo' => 'icloudpool', 'icloud' => 'icloudpool']]
+        'provider_virtual_mta' => [],
     ],
 
     /*
