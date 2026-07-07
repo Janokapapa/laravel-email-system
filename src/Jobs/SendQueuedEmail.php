@@ -180,6 +180,7 @@ class SendQueuedEmail implements ShouldQueue
             $this->emailLog->update([
                 'status' => 'sent',
                 'error' => null,
+                'sent_at' => now(),
             ]);
 
             AudienceUser::where('email', $this->emailLog->recipient)
@@ -265,6 +266,7 @@ class SendQueuedEmail implements ShouldQueue
                 $this->emailLog->update([
                     'status' => 'sent',
                     'error' => null,
+                    'sent_at' => now(),
                     'mailgun_message_id' => $messageId,
                 ]);
 

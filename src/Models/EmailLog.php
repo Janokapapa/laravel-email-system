@@ -28,6 +28,7 @@ class EmailLog extends Model
         'cc',
         'bcc',
         'status',
+        'sent_at',
         'opened',
         'opened_at',
         'clicked',
@@ -45,6 +46,7 @@ class EmailLog extends Model
     ];
 
     protected $casts = [
+        'sent_at' => 'datetime',
         'opened' => 'boolean',
         'opened_at' => 'datetime',
         'clicked' => 'boolean',

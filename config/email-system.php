@@ -127,6 +127,31 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Warmup — per-sending-domain daily volume cap
+    |--------------------------------------------------------------------------
+    |
+    | Protects a fresh sending (From/DKIM) domain from being over-sent on day
+    | one. The daily cap ramps up each calendar day since the domain's first
+    | send: daily_cap = base * (factor ** warmup_day_index). Once the cap
+    | reaches max_daily the domain is warmed up and the overall cap is lifted.
+    |
+    | A separate, always-on iCloud sub-cap (iCloud is volume-sensitive) limits
+    | iCloud recipients to min(icloud_daily_cap, daily_cap) per domain per day.
+    | Enforced in the PMTA send path (email:pmta-sync); deferred emails stay
+    | 'spooled' for the next run/day. Per-domain overrides live on the
+    | email_sending_domains table (warmup_enabled, max_daily).
+    |
+    */
+    'warmup' => [
+        'enabled' => env('EMAIL_SYSTEM_WARMUP_ENABLED', true),
+        'base' => 50,
+        'factor' => 2,
+        'max_daily' => 1_000_000,
+        'icloud_daily_cap' => 60,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Routes Configuration
     |--------------------------------------------------------------------------
     */

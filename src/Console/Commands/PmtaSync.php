@@ -6,6 +6,7 @@ use JanDev\EmailSystem\Models\EmailLog;
 use JanDev\EmailSystem\Models\AudienceUser;
 use JanDev\EmailSystem\Support\PmtaSpooler;
 use JanDev\EmailSystem\Support\SenderResolver;
+use JanDev\EmailSystem\Support\WarmupLimiter;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -54,6 +55,10 @@ class PmtaSync extends Command
             // Track EML generation count per server to enforce batch_size
             $serverBatchCount = [];
 
+            // Per-sending-domain warmup daily-cap limiter. Holds running
+            // counters for this run (seeded from today's already-sent counts).
+            $warmup = new WarmupLimiter();
+
             foreach ($spooledQuery->cursor() as $emailLog) {
                 if (!$emailLog->sender_name) {
                     Log::channel('queue')->warning("PmtaSync: spooled email {$emailLog->id} has no sender_name, skipping");
@@ -94,6 +99,14 @@ class PmtaSync extends Command
                 $flatPath = $spoolBase . '/outgoing/' . $basename;
                 if (!empty($anyExisting) || is_file($flatPath)) {
                     continue; // Already spooled (in target or failover dir)
+                }
+
+                // Warmup daily-cap: defer (leave spooled) once the sending
+                // domain hit its per-day volume (or iCloud sub-cap) for today.
+                // A deferred email stays 'spooled' and the next run/day picks it up.
+                $fromDomain = $this->extractSendingDomain($emailLog, $senderConfig);
+                if ($fromDomain !== '' && !$warmup->allow($fromDomain, $emailLog->recipient)) {
+                    continue;
                 }
 
                 // Generate unsubscribe URL for this recipient
@@ -569,7 +582,7 @@ class PmtaSync extends Command
             $id = (int) $m[1];
             $affected = EmailLog::where('id', $id)
                 ->where('status', 'spooled')
-                ->update(['status' => 'sent', 'error' => null]);
+                ->update(['status' => 'sent', 'error' => null, 'sent_at' => now()]);
 
             if ($affected > 0) {
                 $okCount++;
@@ -646,6 +659,21 @@ class PmtaSync extends Command
         Log::channel('queue')->info(
             "PmtaSync: cleaned " . count($orphans) . " orphaned files from remote {$tmp}/ for '{$serverName}'"
         );
+    }
+
+    /**
+     * Resolve the sending (From/DKIM) domain for a spooled email.
+     * Prefers the per-email From address (email_logs.sender), falling back to
+     * the sender config's from_address. Returns lowercased domain, or ''.
+     */
+    protected function extractSendingDomain(EmailLog $emailLog, array $senderConfig): string
+    {
+        $from = $emailLog->sender ?: ($senderConfig['from_address'] ?? '');
+        $at = strrpos((string) $from, '@');
+        if ($at === false) {
+            return '';
+        }
+        return strtolower(trim(substr($from, $at + 1)));
     }
 
     /**

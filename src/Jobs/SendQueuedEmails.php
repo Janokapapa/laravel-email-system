@@ -257,6 +257,7 @@ class SendQueuedEmails implements ShouldQueue
         $emailLog->update([
             'status' => 'sent',
             'error' => null,
+            'sent_at' => now(),
         ]);
 
         AudienceUser::where('email', $emailLog->recipient)
@@ -374,7 +375,8 @@ class SendQueuedEmails implements ShouldQueue
                 DB::statement("UPDATE email_logs
                     SET mailgun_message_id = CASE id {$cases} END,
                         status = 'sent',
-                        error = NULL
+                        error = NULL,
+                        sent_at = NOW()
                     WHERE id IN ({$idsList})");
 
                 $recipientEmails = $emails->pluck('recipient')->toArray();
