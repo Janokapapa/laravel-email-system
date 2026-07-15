@@ -4,9 +4,11 @@ namespace JanDev\EmailSystem\Console\Commands;
 
 use JanDev\EmailSystem\Models\EmailLog;
 use JanDev\EmailSystem\Models\AudienceUser;
+use JanDev\EmailSystem\Models\EmailSendingDomain;
 use JanDev\EmailSystem\Support\PmtaSpooler;
 use JanDev\EmailSystem\Support\SenderResolver;
 use JanDev\EmailSystem\Support\WarmupLimiter;
+use JanDev\EmailSystem\Support\ProviderResolver;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -59,6 +61,10 @@ class PmtaSync extends Command
             // counters for this run (seeded from today's already-sent counts).
             $warmup = new WarmupLimiter();
 
+            // Per-run cache of sending-domain records (provider-block policy).
+            // Keyed by lowercased domain; value is EmailSendingDomain|null.
+            $domainRecords = [];
+
             foreach ($spooledQuery->cursor() as $emailLog) {
                 if (!$emailLog->sender_name) {
                     Log::channel('queue')->warning("PmtaSync: spooled email {$emailLog->id} has no sender_name, skipping");
@@ -101,10 +107,26 @@ class PmtaSync extends Command
                     continue; // Already spooled (in target or failover dir)
                 }
 
+                $fromDomain = $this->extractSendingDomain($emailLog, $senderConfig);
+
+                // Per-domain provider suppression: if this sending domain has the
+                // recipient's provider group blocked (e.g. Gmail reputation damaged),
+                // defer — leave it 'spooled' and do NOT hand it to PMTA. Reversible
+                // by clearing blocked_providers on the domain record.
+                if ($fromDomain !== '') {
+                    $key = strtolower($fromDomain);
+                    if (!array_key_exists($key, $domainRecords)) {
+                        $domainRecords[$key] = EmailSendingDomain::where('domain', $key)->first();
+                    }
+                    $record = $domainRecords[$key];
+                    if ($record && $record->blocksProvider(ProviderResolver::resolve($emailLog->recipient))) {
+                        continue;
+                    }
+                }
+
                 // Warmup daily-cap: defer (leave spooled) once the sending
                 // domain hit its per-day volume (or iCloud sub-cap) for today.
                 // A deferred email stays 'spooled' and the next run/day picks it up.
-                $fromDomain = $this->extractSendingDomain($emailLog, $senderConfig);
                 if ($fromDomain !== '' && !$warmup->allow($fromDomain, $emailLog->recipient)) {
                     continue;
                 }
