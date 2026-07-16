@@ -81,6 +81,19 @@ class PmtaSync extends Command
                     continue;
                 }
 
+                // Honor per-email (campaign-level) From / display-name / Reply-To
+                // overrides on top of the sender definition, mirroring
+                // SendQueuedEmail. Without this the actual From + DKIM domain would
+                // come from the definition, not the domain the campaign selected —
+                // so a campaign switched to another From domain would still go out
+                // from the definition's domain.
+                $senderConfig = SenderResolver::applyEmailOverrides(
+                    $senderConfig,
+                    $emailLog->sender,
+                    $emailLog->sender_display_name,
+                    $emailLog->reply_to
+                );
+
                 // Resolve target server: routing profile → pmta_server fallback → legacy global routing
                 $resolvedServer = SenderResolver::resolveServerForRecipient($emailLog->recipient, $senderConfig);
 

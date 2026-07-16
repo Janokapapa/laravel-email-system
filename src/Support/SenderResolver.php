@@ -321,6 +321,31 @@ class SenderResolver
     }
 
     /**
+     * Apply per-email (campaign-level) sender overrides on top of a resolved
+     * sender definition. The campaign may override the From address, display
+     * name and Reply-To without changing the selected sender definition; those
+     * per-email values must win so the actual From/DKIM domain matches what the
+     * campaign selected. Empty overrides are ignored (definition wins).
+     */
+    public static function applyEmailOverrides(
+        array $senderConfig,
+        ?string $sender,
+        ?string $displayName,
+        ?string $replyTo
+    ): array {
+        if (!empty($sender)) {
+            $senderConfig['from_address'] = $sender;
+        }
+        if (!empty($displayName)) {
+            $senderConfig['from_name'] = $displayName;
+        }
+        if (!empty($replyTo)) {
+            $senderConfig['reply_to'] = $replyTo;
+        }
+        return $senderConfig;
+    }
+
+    /**
      * Resolve the full PMTA config for a sender, merging server config with sender fields.
      * Priority for virtual_mta: sender's pmta_virtual_mta (if set) > server's virtual_mta.
      * Backward compat: if sender has inline pmta_host, use inline fields as fallback.
