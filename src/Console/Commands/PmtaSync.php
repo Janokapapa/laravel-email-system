@@ -9,6 +9,7 @@ use JanDev\EmailSystem\Support\PmtaSpooler;
 use JanDev\EmailSystem\Support\SenderResolver;
 use JanDev\EmailSystem\Support\WarmupLimiter;
 use JanDev\EmailSystem\Support\ProviderResolver;
+use JanDev\EmailSystem\Support\ProviderRewarmLimiter;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -61,6 +62,9 @@ class PmtaSync extends Command
             // counters for this run (seeded from today's already-sent counts).
             $warmup = new WarmupLimiter();
 
+            // Per-domain, per-provider re-warm limiter (cap + engaged-only).
+            $rewarm = new ProviderRewarmLimiter();
+
             // Per-run cache of sending-domain records (provider-block policy).
             // Keyed by lowercased domain; value is EmailSendingDomain|null.
             $domainRecords = [];
@@ -109,18 +113,29 @@ class PmtaSync extends Command
 
                 $fromDomain = $this->extractSendingDomain($emailLog, $senderConfig);
 
-                // Per-domain provider suppression: if this sending domain has the
-                // recipient's provider group blocked (e.g. Gmail reputation damaged),
-                // defer — leave it 'spooled' and do NOT hand it to PMTA. Reversible
-                // by clearing blocked_providers on the domain record.
+                // Per-domain provider policy: hard block, or a re-warm cap.
                 if ($fromDomain !== '') {
                     $key = strtolower($fromDomain);
                     if (!array_key_exists($key, $domainRecords)) {
                         $domainRecords[$key] = EmailSendingDomain::where('domain', $key)->first();
                     }
                     $record = $domainRecords[$key];
-                    if ($record && $record->blocksProvider(ProviderResolver::resolve($emailLog->recipient))) {
-                        continue;
+                    if ($record) {
+                        $provider = ProviderResolver::resolve($emailLog->recipient);
+
+                        // (a) Hard block: defer — leave 'spooled', never hand to PMTA.
+                        if ($record->blocksProvider($provider)) {
+                            continue;
+                        }
+
+                        // (b) Re-warm cap: for a provider with a recovery policy,
+                        // only engaged recipients pass, and only up to daily_cap/day.
+                        // Everyone else is deferred (left 'spooled') for a later day.
+                        $policy = $record->providerPolicy($provider);
+                        if ($policy !== null
+                            && !$rewarm->allow($fromDomain, $emailLog->recipient, $provider, $policy)) {
+                            continue;
+                        }
                     }
                 }
 
