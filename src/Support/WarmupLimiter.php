@@ -45,6 +45,8 @@ class WarmupLimiter
     protected array $warmupEnabledFor = [];
     /** @var array<string,int|null> domain => per-domain max_daily override */
     protected array $maxDailyFor = [];
+    /** @var array<string,int|null> domain => per-domain warmup base override */
+    protected array $baseFor = [];
 
     public function __construct(?array $config = null)
     {
@@ -65,10 +67,10 @@ class WarmupLimiter
      * is warmed up (cap has reached/passed max_daily => no overall cap).
      * Computed iteratively to avoid integer overflow at large day indexes.
      */
-    public function capForDayIndex(int $dayIndex, ?int $maxDailyOverride = null): ?int
+    public function capForDayIndex(int $dayIndex, ?int $maxDailyOverride = null, ?int $baseOverride = null): ?int
     {
         $max = $maxDailyOverride ?? $this->maxDaily;
-        $cap = $this->base;
+        $cap = $baseOverride ?? $this->base;
         for ($i = 0, $n = max(0, $dayIndex); $i < $n; $i++) {
             $cap *= $this->factor;
             if ($cap >= $max) {
@@ -78,18 +80,18 @@ class WarmupLimiter
         return $cap >= $max ? null : $cap;
     }
 
-    public function isComplete(int $dayIndex, ?int $maxDailyOverride = null): bool
+    public function isComplete(int $dayIndex, ?int $maxDailyOverride = null, ?int $baseOverride = null): bool
     {
-        return $this->capForDayIndex($dayIndex, $maxDailyOverride) === null;
+        return $this->capForDayIndex($dayIndex, $maxDailyOverride, $baseOverride) === null;
     }
 
     /**
      * Effective iCloud sub-cap = min(icloud_daily_cap, overall daily cap).
      * When warmed up (overall unlimited) the iCloud cap still applies on its own.
      */
-    public function icloudCapForDayIndex(int $dayIndex, ?int $maxDailyOverride = null): int
+    public function icloudCapForDayIndex(int $dayIndex, ?int $maxDailyOverride = null, ?int $baseOverride = null): int
     {
-        $overall = $this->capForDayIndex($dayIndex, $maxDailyOverride);
+        $overall = $this->capForDayIndex($dayIndex, $maxDailyOverride, $baseOverride);
         return $overall === null ? $this->icloudDailyCap : min($this->icloudDailyCap, $overall);
     }
 
@@ -116,17 +118,18 @@ class WarmupLimiter
         int $icloudSentToday,
         bool $isIcloud,
         bool $domainWarmupEnabled = true,
-        ?int $maxDailyOverride = null
+        ?int $maxDailyOverride = null,
+        ?int $baseOverride = null
     ): bool {
         if (!$this->enabled || !$domainWarmupEnabled) {
             return false;
         }
 
-        if ($isIcloud && $icloudSentToday >= $this->icloudCapForDayIndex($dayIndex, $maxDailyOverride)) {
+        if ($isIcloud && $icloudSentToday >= $this->icloudCapForDayIndex($dayIndex, $maxDailyOverride, $baseOverride)) {
             return true;
         }
 
-        $overallCap = $this->capForDayIndex($dayIndex, $maxDailyOverride);
+        $overallCap = $this->capForDayIndex($dayIndex, $maxDailyOverride, $baseOverride);
         if ($overallCap !== null && $overallSentToday >= $overallCap) {
             return true;
         }
@@ -175,7 +178,8 @@ class WarmupLimiter
             $this->icloudCount[$domain],
             $isIcloud,
             true,
-            $this->maxDailyFor[$domain]
+            $this->maxDailyFor[$domain],
+            $this->baseFor[$domain]
         )) {
             return false;
         }
@@ -208,6 +212,7 @@ class WarmupLimiter
 
         $this->warmupEnabledFor[$domain] = (bool) ($record->warmup_enabled ?? true);
         $this->maxDailyFor[$domain] = $record->max_daily !== null ? (int) $record->max_daily : null;
+        $this->baseFor[$domain] = $record->warmup_base !== null ? (int) $record->warmup_base : null;
         $this->dayIndex[$domain] = self::dayIndexFor($record->first_sent_at);
         $this->overallCount[$domain] = $this->countSentToday($domain, false);
         $this->icloudCount[$domain] = $this->countSentToday($domain, true);

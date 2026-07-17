@@ -8,8 +8,10 @@ use Illuminate\Database\Eloquent\Model;
  * Tracks warmup state for a sending (From/DKIM) domain.
  *
  * first_sent_at anchors the warmup curve (see WarmupLimiter). Optional
- * per-domain overrides let an operator disable warmup or raise the ceiling
- * for a specific domain without touching global config.
+ * per-domain overrides let an operator disable warmup, raise the ceiling
+ * (max_daily), or accelerate the ramp (warmup_base — a higher starting cap for
+ * a brand-new From/DKIM domain whose sending IPs are already warm) for a
+ * specific domain without touching global config.
  *
  * blocked_providers pauses one or more inbox-provider groups (as classified by
  * ProviderResolver: gmail/yahoo/microsoft/icloud/default) for this domain — the
@@ -23,6 +25,7 @@ class EmailSendingDomain extends Model
         'domain',
         'first_sent_at',
         'warmup_enabled',
+        'warmup_base',
         'max_daily',
         'blocked_providers',
         'provider_policies',
@@ -31,6 +34,7 @@ class EmailSendingDomain extends Model
     protected $casts = [
         'first_sent_at' => 'datetime',
         'warmup_enabled' => 'boolean',
+        'warmup_base' => 'integer',
         'max_daily' => 'integer',
         'blocked_providers' => 'array',
         'provider_policies' => 'array',
