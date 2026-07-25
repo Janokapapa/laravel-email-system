@@ -78,8 +78,8 @@ class CampaignSummaryBuilder
         }
         $html .= '<div class="cs-row"><span class="cs-label">' . __('Subject') . '</span><span class="cs-value" style="font-weight:600;">' . e($subject) . '</span></div>';
         $html .= '<div class="cs-row"><span class="cs-label">' . __('Format') . '</span><span class="cs-value">'
-            . '<span class="cs-badge ' . ($contentType === 'html' ? 'cs-badge-blue' : 'cs-badge-gray') . '">'
-            . ($contentType === 'html' ? 'HTML' : __('Plain Text'))
+            . '<span class="cs-badge ' . ($contentType === 'text' ? 'cs-badge-gray' : 'cs-badge-blue') . '">'
+            . ($contentType === 'html' ? 'HTML' : ($contentType === 'both' ? 'HTML + Text' : __('Plain Text')))
             . '</span></span></div>';
         if ($skippedNames) {
             $html .= '<div class="cs-row"><span class="cs-label">' . __('Skip') . '</span><span class="cs-value">'
