@@ -147,17 +147,26 @@ final class Mobivate
     private static function payload(string $to, string $message, ?string $reference): array
     {
         $clean = SmsPhone::normalise($to) ?? $to;
+        // Digits only: the provider rejects the leading plus.
+        $digits = preg_replace('/[^0-9]/', '', $clean) ?? '';
 
-        return [
+        $payload = [
+            'text' => $message,
             'originator' => self::originatorFor($clean),
-            'recipient' => ltrim($clean, '+'),
-            'body' => $message,
-            'routeId' => SmsConfig::string('email-system.sms.route_id'),
-            'reference' => $reference,
+            'recipient' => $digits,
             // We mint one short link per recipient; theirs would replace ours,
             // cost extra per link, and take the per-person click tracking with it.
             'shortenUrls' => false,
+            // The provider also keeps an opt-out list. Honouring it as well as our
+            // own costs nothing and covers the case where someone opted out
+            // through them rather than through us.
+            'excludeOptouts' => true,
         ];
+        if ($reference !== null && $reference !== '') {
+            $payload['reference'] = $reference;
+        }
+
+        return $payload;
     }
 
     private static function url(): string
@@ -167,9 +176,12 @@ final class Mobivate
 
     private static function auth(): ?string
     {
-        $key = SmsConfig::string('email-system.sms.api_key');
+        // The provider wants "Bearer <accountId>:<apiKey>". Sending the key alone
+        // authenticates as nobody and every message is rejected.
+        $accountId = SmsConfig::string('email-system.sms.account_id');
+        $apiKey = SmsConfig::string('email-system.sms.api_key');
 
-        return $key === '' ? null : $key;
+        return ($accountId === '' || $apiKey === '') ? null : 'Bearer ' . $accountId . ':' . $apiKey;
     }
 
     /**
@@ -182,20 +194,19 @@ final class Mobivate
             return ['ok' => false, 'id' => null, 'error' => 'unreadable provider response'];
         }
 
-        // The provider reports acceptance, not delivery. "ok" here means the
+        // The provider reports acceptance, not delivery. True here means the
         // message was taken, and it is billed from that moment; whether it
         // reached a handset is only knowable from a delivery report.
-        $status = strtoupper((string) ($data['statusCode'] ?? $data['status'] ?? ''));
-        $accepted = in_array($status, ['0', 'OK', 'SUCCESS', 'ACCEPTED'], true);
+        if (($data['success'] ?? null) === true) {
+            $id = $data['record']['id'] ?? null;
 
-        if (!$accepted) {
-            Log::warning('Mobivate rejected a message', ['response' => $data]);
+            return ['ok' => true, 'id' => is_scalar($id) ? (string) $id : null, 'error' => null];
         }
 
-        return [
-            'ok' => $accepted,
-            'id' => isset($data['id']) ? (string) $data['id'] : null,
-            'error' => $accepted ? null : (string) ($data['errorMessage'] ?? $data['error'] ?? $status ?: 'rejected'),
-        ];
+        $raw = $data['message'] ?? $data['error'] ?? null;
+        $error = is_scalar($raw) ? (string) $raw : ('unexpected response: ' . $body);
+        Log::warning('Mobivate rejected a message', ['response' => $data]);
+
+        return ['ok' => false, 'id' => null, 'error' => $error];
     }
 }
