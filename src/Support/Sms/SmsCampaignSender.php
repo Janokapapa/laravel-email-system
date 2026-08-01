@@ -44,8 +44,32 @@ final class SmsCampaignSender
         if (trim((string) $campaign->body) === '') {
             return 'The message is empty.';
         }
+        if (self::dailyRemaining() === 0) {
+            return 'The daily SMS cap has been reached.';
+        }
 
         return null;
+    }
+
+    /**
+     * Messages still allowed today, or null when no cap is set.
+     *
+     * Counted across campaigns, not per campaign: three campaigns of "only a
+     * thousand each" is the shape an unintended bill usually takes. Zero in
+     * config means uncapped, which on a paid channel is rarely deliberate.
+     */
+    public static function dailyRemaining(): ?int
+    {
+        $cap = SmsConfig::int('email-system.sms.daily_cap', 0);
+        if ($cap <= 0) {
+            return null;
+        }
+
+        $usedToday = EmailLog::where('channel', 'sms')
+            ->where('created_at', '>=', now()->startOfDay())
+            ->count();
+
+        return max(0, $cap - $usedToday);
     }
 
     /**
