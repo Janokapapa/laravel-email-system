@@ -10,6 +10,7 @@ use JanDev\EmailSystem\Filament\Resources\EmailAudienceGroupResource;
 use JanDev\EmailSystem\Filament\Resources\EmailLogResource;
 use JanDev\EmailSystem\Filament\Resources\BouncedEmailResource;
 use JanDev\EmailSystem\Filament\Resources\AudienceUserResource;
+use JanDev\EmailSystem\Filament\Resources\SmsSuppressionResource;
 use JanDev\EmailSystem\Filament\Pages\PmtaStatisticsPage;
 use JanDev\EmailSystem\Filament\Pages\PmtaServerDetailPage;
 use JanDev\EmailSystem\Filament\Widgets\AudienceGroupStatsWidget;
@@ -35,6 +36,7 @@ class EmailSystemPlugin implements Plugin
             EmailLogResource::class,
             BouncedEmailResource::class,
             AudienceUserResource::class,
+            SmsSuppressionResource::class,
         ]);
 
         $panel->pages([
