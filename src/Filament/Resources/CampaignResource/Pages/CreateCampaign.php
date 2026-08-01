@@ -12,6 +12,9 @@ use JanDev\EmailSystem\Support\CampaignFilterBuilder;
 use JanDev\EmailSystem\Support\CampaignSummaryBuilder;
 use JanDev\EmailSystem\Support\ContentTypeConverter;
 use JanDev\EmailSystem\Support\SenderResolver;
+use JanDev\EmailSystem\Support\Sms\ShortLinkClient;
+use JanDev\EmailSystem\Support\Sms\SmsPricing;
+use JanDev\EmailSystem\Support\Sms\SmsText;
 use JanDev\EmailSystem\Jobs\SendQueuedEmail;
 use JanDev\EmailSystem\Jobs\DispatchCampaign;
 use Filament\Forms\Components\CheckboxList;
@@ -19,6 +22,8 @@ use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Field;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Placeholder;
+use Filament\Forms\Components\Radio;
+use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
@@ -116,12 +121,28 @@ class CreateCampaign extends CreateRecord
             Step::make(__('Sender'))
                 ->icon('heroicon-o-user')
                 ->schema([
+                    // Chosen once. Half the fields below mean different things per
+                    // channel, so switching one mid-life would leave a campaign whose
+                    // recorded cost and audience belong to the other; duplicate instead.
+                    Radio::make('channel')
+                        ->label(__('Channel'))
+                        ->options([
+                            Campaign::CHANNEL_EMAIL => __('E-mail'),
+                            Campaign::CHANNEL_SMS => __('SMS'),
+                        ])
+                        ->default(Campaign::CHANNEL_EMAIL)
+                        ->inline()
+                        ->live()
+                        ->required()
+                        ->helperText(__('SMS costs money per message and cannot be recalled once sent.')),
+
                     TextInput::make('name')
                         ->label(__('Campaign Name'))
                         ->required()
                         ->placeholder(__('e.g. January Newsletter 2026')),
 
                     Select::make('sender_name')
+                        ->visible(fn (Get $get): bool => $get('channel') !== Campaign::CHANNEL_SMS)
                         ->label(__('Sender'))
                         ->options(fn () => SenderResolver::options())
                         ->default(function () {
@@ -136,7 +157,7 @@ class CreateCampaign extends CreateRecord
                             $options = SenderResolver::options();
                             return $options ? array_key_first($options) : null;
                         })
-                        ->required()
+                        ->required(fn (Get $get): bool => $get('channel') !== Campaign::CHANNEL_SMS)
                         ->searchable()
                         ->live()
                         ->afterStateUpdated(function (Set $set, ?string $state) {
@@ -149,15 +170,18 @@ class CreateCampaign extends CreateRecord
                         }),
 
                     TextInput::make('sender_display_name')
+                        ->visible(fn (Get $get): bool => $get('channel') !== Campaign::CHANNEL_SMS)
                         ->label(__('From Name'))
-                        ->required(),
+                        ->required(fn (Get $get): bool => $get('channel') !== Campaign::CHANNEL_SMS),
 
                     TextInput::make('sender_address')
+                        ->visible(fn (Get $get): bool => $get('channel') !== Campaign::CHANNEL_SMS)
                         ->label(__('From Address'))
                         ->email()
-                        ->required(),
+                        ->required(fn (Get $get): bool => $get('channel') !== Campaign::CHANNEL_SMS),
 
                     TextInput::make('reply_to')
+                        ->visible(fn (Get $get): bool => $get('channel') !== Campaign::CHANNEL_SMS)
                         ->label(__('Reply-To'))
                         ->email()
                         ->helperText(__('Leave empty to use From Address'))
@@ -239,7 +263,54 @@ class CreateCampaign extends CreateRecord
             Step::make(__('Template'))
                 ->icon('heroicon-o-document-text')
                 ->schema([
+                    // SMS is plain text whose length is money, so it gets its own
+                    // field and a live meter rather than a rich-text editor. The two
+                    // things that multiply the bill - accents and pasted smart
+                    // punctuation - are invisible in the text itself.
+                    Textarea::make('body')
+                        ->visible(fn (Get $get): bool => $get('channel') === Campaign::CHANNEL_SMS)
+                        ->required(fn (Get $get): bool => $get('channel') === Campaign::CHANNEL_SMS)
+                        ->label(__('Message'))
+                        ->rows(6)
+                        ->live(onBlur: true)
+                        ->helperText(__('Placeholders: {{name}}. Links are shortened automatically, one per recipient. No unsubscribe link: opt-out is the STOP keyword.')),
+
+                    Placeholder::make('sms_meter')
+                        ->visible(fn (Get $get): bool => $get('channel') === Campaign::CHANNEL_SMS)
+                        ->label(__('Length and cost'))
+                        ->content(function (Get $get): HtmlString {
+                            $body = (string) $get('body');
+                            if (trim($body) === '') {
+                                return new HtmlString('<span class="text-gray-500">' . __('Type a message to see its length and cost.') . '</span>');
+                            }
+
+                            // Measured as it will be sent: links shortened, accents
+                            // folded if this install folds them.
+                            $measured = SmsText::previewShortenedLinks($body, ShortLinkClient::sampleUrl());
+                            if (config('email-system.sms.fold_accents', true)) {
+                                $measured = SmsText::foldToGsm7($measured);
+                            }
+
+                            $segments = SmsText::segments($measured);
+                            $encoding = SmsText::encodingOf($measured);
+                            $price = SmsPricing::forPhone('+44');
+                            $each = $price === null ? '—' : number_format($segments * $price, 4) . ' EUR';
+
+                            $warn = $encoding === 'UCS-2'
+                                ? '<br><span class="text-warning-600">' . __('One character outside the GSM alphabet has halved the per-segment budget. Check for accents or pasted quotes.') . '</span>'
+                                : '';
+
+                            return new HtmlString(
+                                '<strong>' . $segments . '</strong> ' . __('segment(s)')
+                                . ' · ' . mb_strlen($measured) . ' ' . __('characters')
+                                . ' · ' . $encoding
+                                . ' · ~' . $each . ' ' . __('per recipient (UK rate)')
+                                . $warn
+                            );
+                        }),
+
                     Select::make('email_template_id')
+                        ->visible(fn (Get $get): bool => $get('channel') !== Campaign::CHANNEL_SMS)
                         ->label(__('Load from Template (optional)'))
                         ->options(fn () => EmailTemplate::orderBy('id', 'desc')->pluck('name', 'id'))
                         ->nullable()
@@ -261,6 +332,7 @@ class CreateCampaign extends CreateRecord
                         }),
 
                     Select::make('content_type')
+                        ->visible(fn (Get $get): bool => $get('channel') !== Campaign::CHANNEL_SMS)
                         ->label(__('Content Type'))
                         ->options([
                             'both' => __('Both (HTML + Text)'),

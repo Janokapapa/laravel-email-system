@@ -5,6 +5,7 @@ use JanDev\EmailSystem\Http\Controllers\MailgunWebhookController;
 use JanDev\EmailSystem\Http\Controllers\PmtaBounceController;
 use JanDev\EmailSystem\Http\Controllers\PmtaBounceCountersController;
 use JanDev\EmailSystem\Http\Controllers\PmtaStatsController;
+use JanDev\EmailSystem\Http\Controllers\SmsInboundController;
 use JanDev\EmailSystem\Http\Controllers\Api\AudienceGroupController;
 use JanDev\EmailSystem\Http\Controllers\Api\AudienceUserController;
 use JanDev\EmailSystem\Http\Middleware\ApiKeyAuth;
@@ -21,6 +22,14 @@ Route::post('/webhook/pmta-bounce-counters', [PmtaBounceCountersController::clas
 
 Route::post('/webhook/pmta-stats', [PmtaStatsController::class, 'handle'])
     ->name('email-system.webhook.pmta-stats');
+
+// Inbound SMS. The MO endpoint carries opt-outs, so it must stay reachable:
+// a STOP that cannot be delivered to us is an opt-out we never honour.
+Route::post('/webhook/sms-mo', [SmsInboundController::class, 'mo'])
+    ->name('email-system.webhook.sms-mo');
+
+Route::post('/webhook/sms-dr', [SmsInboundController::class, 'dr'])
+    ->name('email-system.webhook.sms-dr');
 
 // Audience REST API v1 — requires valid X-API-Key header
 Route::prefix('api/v1')

@@ -2,6 +2,8 @@
 
 namespace JanDev\EmailSystem\Support;
 
+use JanDev\EmailSystem\Support\Sms\SmsPhone;
+
 use JanDev\EmailSystem\Models\AudienceUser;
 
 class CsvHelper
@@ -15,7 +17,7 @@ class CsvHelper
     {
         $definitions = AudienceUser::getCustomFieldDefinitions();
 
-        $header = ['name', 'email', 'zerobounce_status'];
+        $header = ['name', 'email', 'phone', 'zerobounce_status'];
 
         foreach ($definitions as $field) {
             $slug = $field['slug'] ?? null;
@@ -36,7 +38,9 @@ class CsvHelper
     {
         $definitions = $definitions ?? AudienceUser::getCustomFieldDefinitions();
 
-        $row = [$user->name, $user->email, $user->zerobounce_status ?? 'unverified'];
+        // Order must match the export header exactly, or a re-import silently
+        // loads every column into the wrong field.
+        $row = [$user->name, $user->email, $user->phone ?? '', $user->zerobounce_status ?? 'unverified'];
 
         foreach ($definitions as $field) {
             $slug = $field['slug'] ?? null;
@@ -403,8 +407,20 @@ class CsvHelper
         $customFields = [];
         $errors = [];
 
+        $phone = null;
+
         foreach ($header as $i => $col) {
             if ($i < 2) {
+                continue;
+            }
+            // `phone` is a real column, not a custom field: SMS campaigns filter and
+            // suppress on it, and a value buried in the custom_fields JSON cannot be
+            // indexed or matched against the suppression list.
+            if ($col === 'phone') {
+                $phone = SmsPhone::normalise(trim($row[$i] ?? ''));
+                if ($phone === null && trim($row[$i] ?? '') !== '') {
+                    $errors[] = "Unusable phone number: " . trim($row[$i] ?? '');
+                }
                 continue;
             }
             if (!isset($defBySlug[$col])) {
@@ -450,6 +466,7 @@ class CsvHelper
         return [
             'name'          => $name,
             'email'         => $email,
+            'phone'         => $phone,
             'custom_fields' => $customFields,
             'errors'        => $errors,
         ];

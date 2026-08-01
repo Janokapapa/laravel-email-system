@@ -3,6 +3,7 @@
 namespace JanDev\EmailSystem\Console\Commands;
 
 use JanDev\EmailSystem\Jobs\DispatchCampaign;
+use JanDev\EmailSystem\Jobs\DispatchSmsCampaign;
 use JanDev\EmailSystem\Models\Campaign;
 use JanDev\EmailSystem\Models\EmailAudienceGroup;
 use JanDev\EmailSystem\Support\CampaignFilterBuilder;
@@ -95,7 +96,9 @@ class DispatchScheduledCampaigns extends Command
 
         // 3. Dispatch DispatchCampaign job (wrapped in try-catch to revert on failure)
         try {
-            DispatchCampaign::dispatch($campaign);
+            $campaign->isSms()
+                ? DispatchSmsCampaign::dispatch($campaign)
+                : DispatchCampaign::dispatch($campaign);
 
             Log::channel('queue')->info(
                 "DispatchScheduledCampaigns: Dispatched campaign #{$campaign->id} ({$campaign->name}) to {$total} recipients."

@@ -28,6 +28,8 @@ class EmailLog extends Model
         'cc',
         'bcc',
         'status',
+        'channel',
+        'segments',
         'sent_at',
         'opened',
         'opened_at',

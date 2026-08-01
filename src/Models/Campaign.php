@@ -13,6 +13,7 @@ class Campaign extends Model
     protected $fillable = [
         'name',
         'status',
+        'channel',
         'sender_name',
         'sender_address',
         'sender_display_name',
@@ -47,6 +48,19 @@ class Campaign extends Model
         'sent_at' => 'datetime',
         'scheduled_at' => 'datetime',
     ];
+
+    public const CHANNEL_EMAIL = 'email';
+    public const CHANNEL_SMS = 'sms';
+
+    /**
+     * The channel is fixed once the campaign exists: half the fields mean
+     * different things per channel, and switching one mid-life leaves a campaign
+     * whose recorded cost and audience belong to the other. Duplicate to switch.
+     */
+    public function isSms(): bool
+    {
+        return $this->channel === self::CHANNEL_SMS;
+    }
 
     public function emailTemplate(): BelongsTo
     {

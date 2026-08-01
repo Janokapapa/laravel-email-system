@@ -6,6 +6,7 @@ use JanDev\EmailSystem\Filament\Resources\CampaignResource;
 use JanDev\EmailSystem\Models\EmailAudienceGroup;
 use JanDev\EmailSystem\Models\EmailLog;
 use JanDev\EmailSystem\Jobs\DispatchCampaign;
+use JanDev\EmailSystem\Jobs\DispatchSmsCampaign;
 use JanDev\EmailSystem\Support\CampaignFilterBuilder;
 use Illuminate\Support\Facades\DB;
 use Filament\Resources\Pages\Page;
@@ -243,7 +244,11 @@ class ViewCampaign extends Page
         $this->record->update(['status' => 'sending', 'total_recipients' => $total]);
         $this->record->refresh();
 
-        DispatchCampaign::dispatch($this->record);
+        // An SMS campaign goes down its own path: the e-mail job would try to
+        // spool it through PMTA, which has no idea what a phone number is.
+        $this->record->isSms()
+            ? DispatchSmsCampaign::dispatch($this->record)
+            : DispatchCampaign::dispatch($this->record);
 
         \Filament\Notifications\Notification::make()
             ->title(__('Campaign retry started'))

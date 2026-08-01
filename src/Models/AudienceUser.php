@@ -10,6 +10,7 @@ class AudienceUser extends Model
     protected $fillable = [
         'name',
         'email',
+        'phone',
         'is_active',
         'email_audience_group_id',
         'unsubscribe_token',

@@ -111,11 +111,7 @@ final class SmsPricing
         }
 
         if ($raw === null) {
-            try {
-                $raw = config('email-system.sms.prices');
-            } catch (Throwable) {
-                $raw = null;
-            }
+            $raw = SmsConfig::get('email-system.sms.prices');
         }
 
         if (is_string($raw)) {

@@ -65,6 +65,21 @@ class AudienceUsersRelationManager extends RelationManager
                         'autocomplete' => 'new-password',
                     ]),
 
+                TextInput::make('phone')
+                    ->label(__('Phone'))
+                    ->tel()
+                    ->nullable()
+                    ->helperText(__('International format with the country code, e.g. +447700900123. Without it the provider guesses the country, which is a wasted message at the wrong price.'))
+                    ->rule('nullable')
+                    ->dehydrateStateUsing(fn (?string $state): ?string => \JanDev\EmailSystem\Support\Sms\SmsPhone::normalise($state))
+                    ->rules([
+                        fn (): \Closure => function (string $attribute, $value, \Closure $fail): void {
+                            if ($value !== null && $value !== '' && \JanDev\EmailSystem\Support\Sms\SmsPhone::normalise($value) === null) {
+                                $fail(__('Use international format, starting with +.'));
+                            }
+                        },
+                    ]),
+
                 Toggle::make('is_active')
                     ->label(__('Active Status'))
                     ->inline(false),
@@ -218,6 +233,7 @@ class AudienceUsersRelationManager extends RelationManager
                         AudienceUser::create([
                             'name' => $data['name'],
                             'email' => $data['email'],
+                            'phone' => \JanDev\EmailSystem\Support\Sms\SmsPhone::normalise($data['phone'] ?? null),
                             'is_active' => true,
                             'email_audience_group_id' => $groupId,
                         ]);

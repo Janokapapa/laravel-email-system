@@ -4,6 +4,7 @@ namespace JanDev\EmailSystem\Filament\Resources\CampaignResource\Pages;
 
 use JanDev\EmailSystem\Filament\Resources\CampaignResource;
 use JanDev\EmailSystem\Jobs\DispatchCampaign;
+use JanDev\EmailSystem\Jobs\DispatchSmsCampaign;
 use JanDev\EmailSystem\Jobs\SendQueuedEmail;
 use JanDev\EmailSystem\Models\AudienceUser;
 use JanDev\EmailSystem\Models\Campaign;
@@ -14,6 +15,9 @@ use JanDev\EmailSystem\Services\ZeroBounce;
 use JanDev\EmailSystem\Support\CampaignFilterBuilder;
 use JanDev\EmailSystem\Support\ContentTypeConverter;
 use JanDev\EmailSystem\Support\SenderResolver;
+use JanDev\EmailSystem\Support\Sms\ShortLinkClient;
+use JanDev\EmailSystem\Support\Sms\SmsPricing;
+use JanDev\EmailSystem\Support\Sms\SmsText;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Filament\Actions\Action;
@@ -23,6 +27,7 @@ use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Field;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Placeholder;
+use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
@@ -247,7 +252,11 @@ class EditCampaign extends EditRecord
 
         $this->record->update(['total_recipients' => $total]);
 
-        DispatchCampaign::dispatch($this->record);
+        // An SMS campaign goes down its own path: the e-mail job would try to
+        // spool it through PMTA, which has no idea what a phone number is.
+        $this->record->isSms()
+            ? DispatchSmsCampaign::dispatch($this->record)
+            : DispatchCampaign::dispatch($this->record);
 
         Notification::make()
             ->title(__('Campaign dispatched'))
@@ -265,6 +274,13 @@ class EditCampaign extends EditRecord
             Step::make(__('Sender'))
                 ->icon('heroicon-o-user')
                 ->schema([
+                    // Read-only on an existing campaign. A form control here would
+                    // let a save flip the channel, and the recorded cost and audience
+                    // belong to the channel it was sent on.
+                    Placeholder::make('channel_display')
+                        ->label(__('Channel'))
+                        ->content(fn (): string => $this->record?->isSms() ? __('SMS') : __('E-mail')),
+
                     TextInput::make('name')
                         ->label(__('Campaign Name'))
                         ->required(),
@@ -289,9 +305,10 @@ class EditCampaign extends EditRecord
                         }),
 
                     Select::make('sender_name')
+                        ->visible(fn (): bool => !($this->record?->isSms() ?? false))
                         ->label(__('Sender'))
                         ->options(fn () => SenderResolver::options())
-                        ->required()
+                        ->required(fn (): bool => !($this->record?->isSms() ?? false))
                         ->extraAttributes(['x-on:change' => 'if(window.__fs)window.__fs($event.target.value)']),
 
                     TextInput::make('sender_display_name')
@@ -374,7 +391,48 @@ class EditCampaign extends EditRecord
             Step::make(__('Template'))
                 ->icon('heroicon-o-document-text')
                 ->schema([
+                    Textarea::make('body')
+                        ->visible(fn (): bool => $this->record?->isSms() ?? false)
+                        ->required(fn (): bool => $this->record?->isSms() ?? false)
+                        ->label(__('Message'))
+                        ->rows(6)
+                        ->live(onBlur: true)
+                        ->helperText(__('Placeholders: {{name}}. Links are shortened automatically, one per recipient. No unsubscribe link: opt-out is the STOP keyword.')),
+
+                    Placeholder::make('sms_meter')
+                        ->visible(fn (): bool => $this->record?->isSms() ?? false)
+                        ->label(__('Length and cost'))
+                        ->content(function (Get $get): HtmlString {
+                            $body = (string) $get('body');
+                            if (trim($body) === '') {
+                                return new HtmlString('<span class="text-gray-500">' . __('Type a message to see its length and cost.') . '</span>');
+                            }
+
+                            $measured = SmsText::previewShortenedLinks($body, ShortLinkClient::sampleUrl());
+                            if (config('email-system.sms.fold_accents', true)) {
+                                $measured = SmsText::foldToGsm7($measured);
+                            }
+
+                            $segments = SmsText::segments($measured);
+                            $encoding = SmsText::encodingOf($measured);
+                            $price = SmsPricing::forPhone('+44');
+                            $each = $price === null ? '—' : number_format($segments * $price, 4) . ' EUR';
+
+                            $warn = $encoding === 'UCS-2'
+                                ? '<br><span class="text-warning-600">' . __('One character outside the GSM alphabet has halved the per-segment budget. Check for accents or pasted quotes.') . '</span>'
+                                : '';
+
+                            return new HtmlString(
+                                '<strong>' . $segments . '</strong> ' . __('segment(s)')
+                                . ' · ' . mb_strlen($measured) . ' ' . __('characters')
+                                . ' · ' . $encoding
+                                . ' · ~' . $each . ' ' . __('per recipient (UK rate)')
+                                . $warn
+                            );
+                        }),
+
                     Select::make('email_template_id')
+                        ->visible(fn (): bool => !($this->record?->isSms() ?? false))
                         ->label(__('Load from Template (optional)'))
                         ->options(fn () => EmailTemplate::orderBy('id', 'desc')->pluck('name', 'id'))
                         ->nullable()
