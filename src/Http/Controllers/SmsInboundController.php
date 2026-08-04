@@ -6,7 +6,10 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Log;
+use JanDev\EmailSystem\Models\EmailLog;
 use JanDev\EmailSystem\Models\SmsSuppression;
+use JanDev\EmailSystem\Support\Sms\SmsAudit;
+use JanDev\EmailSystem\Support\Sms\SmsDeliveryStatus;
 use JanDev\EmailSystem\Support\Sms\SmsPhone;
 
 /**
@@ -65,9 +68,71 @@ class SmsInboundController extends Controller
      */
     public function dr(Request $request): JsonResponse
     {
-        Log::info('SMS delivery report', $request->all());
+        $params = $request->all();
+        $status = SmsDeliveryStatus::status($params);
+        $delivered = SmsDeliveryStatus::isDelivered($status);
+        $messageId = SmsDeliveryStatus::messageId($params);
+        $recipient = SmsDeliveryStatus::recipient($params);
 
-        return response()->json(['ok' => true]);
+        $row = $this->matchLog($messageId, $recipient);
+
+        if ($row === null) {
+            // Keep the log line: an unmatched report means either a stale message
+            // or a provider id we never stored, and both are worth seeing.
+            Log::info('SMS delivery report (unmatched)', $params);
+
+            return response()->json(['ok' => true, 'matched' => false]);
+        }
+
+        // Only a positive report promotes the row. Anything else is recorded as
+        // not delivered rather than guessed at — "sent" that never arrived is the
+        // number nobody checks again.
+        $row->status = $delivered ? 'delivered' : 'undelivered';
+        if (!$delivered) {
+            $row->error = 'DR: ' . ($status !== '' ? $status : 'unknown');
+        }
+        $row->save();
+
+        SmsAudit::log('delivery_report', $row->campaign_id ? (int) $row->campaign_id : null, [
+            'recipient' => $row->recipient,
+            'provider_message_id' => $messageId !== '' ? $messageId : null,
+            'status' => $status,
+            'delivered' => $delivered,
+        ]);
+
+        return response()->json(['ok' => true, 'matched' => true]);
+    }
+
+    /**
+     * Find the sent row a report belongs to.
+     *
+     * The provider's message id is tried first because it is unambiguous. The
+     * phone number is only a fallback: the same number can appear in several
+     * campaigns, so it resolves to the most recent SMS we sent it — which is what
+     * a report arriving now refers to. Stored numbers are a mix of "+44..." and
+     * "44..." (whatever the imported CSV held), so the comparison is made on
+     * digits only.
+     */
+    private function matchLog(string $messageId, string $recipient): ?EmailLog
+    {
+        if ($messageId !== '') {
+            $row = EmailLog::where('provider_message_id', $messageId)->first();
+            if ($row !== null) {
+                return $row;
+            }
+        }
+
+        if ($recipient === '') {
+            return null;
+        }
+
+        return EmailLog::where('channel', 'sms')
+            ->whereRaw(
+                "REPLACE(REPLACE(REPLACE(REPLACE(recipient, '+', ''), ' ', ''), '-', ''), '(', '') LIKE ?",
+                ['%' . $recipient]
+            )
+            ->orderByDesc('id')
+            ->first();
     }
 
     /**

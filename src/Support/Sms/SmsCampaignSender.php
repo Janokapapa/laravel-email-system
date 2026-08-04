@@ -185,8 +185,22 @@ final class SmsCampaignSender
         $failed = 0;
         $skipped = 0;
 
-        $handle = function (array $recipients) use ($campaign, $rawBody, $urls, $fold, &$sent, &$failed, &$skipped): void {
-            if ($recipients === []) {
+        // Money cap, re-checked between batches. The pre-send estimate is measured
+        // on a template whose placeholders are unresolved, so the real cost can
+        // drift above it; a cap enforced only up front would not stop anything.
+        $spendCap = SmsBudget::configuredCap();
+        $unitPrice = self::unitPrice();
+        $spent = 0.0;
+        $capStopped = false;
+
+        SmsAudit::log(SmsAudit::EVENT_ESTIMATE, (int) $campaign->id, [
+            'spend_cap' => $spendCap,
+            'unit_price' => $unitPrice,
+            'daily_remaining' => self::dailyRemaining(),
+        ]);
+
+        $handle = function (array $recipients) use ($campaign, $rawBody, $urls, $fold, &$sent, &$failed, &$skipped, $spendCap, $unitPrice, &$spent, &$capStopped): void {
+            if ($recipients === [] || $capStopped) {
                 return;
             }
 
@@ -206,9 +220,16 @@ final class SmsCampaignSender
 
             $results = Mobivate::sendMany($messages);
 
+            $batchSent = 0;
+            $batchSegments = 0;
             foreach ($rows as $i => $row) {
                 $result = $results[$i] ?? ['ok' => false, 'id' => null, 'error' => 'no provider response'];
                 $result['ok'] ? $sent++ : $failed++;
+                $segments = SmsText::segments($row['text']);
+                if ($result['ok']) {
+                    $batchSent++;
+                    $batchSegments = max($batchSegments, $segments);
+                }
 
                 EmailLog::create([
                     'campaign_id' => $campaign->id,
@@ -217,10 +238,37 @@ final class SmsCampaignSender
                     'recipient_name' => $row['name'],
                     'subject' => $campaign->name,
                     'message' => $row['text'],
-                    'segments' => SmsText::segments($row['text']),
+                    'segments' => $segments,
                     'status' => $result['ok'] ? 'sent' : 'failed',
+                    // Keep the provider's id: it is what a delivery report is
+                    // matched on later. Without it a report can only be logged,
+                    // and the campaign stays at "100% sent" forever.
+                    'provider_message_id' => $result['id'] ?? null,
                     'sent_at' => now(),
                 ]);
+            }
+
+            $spent += SmsBudget::spendFor($batchSent, max(1, $batchSegments), $unitPrice);
+
+            SmsAudit::log(SmsAudit::EVENT_BATCH, (int) $campaign->id, [
+                'batch_size' => count($rows),
+                'sent' => $batchSent,
+                'failed' => count($rows) - $batchSent,
+                'segments' => $batchSegments,
+                'spend' => $spent,
+            ]);
+
+            // Stop BETWEEN batches once the money is gone: the next batch is the
+            // one that would overspend, and an SMS cannot be recalled.
+            if (SmsBudget::isExhausted($spendCap, $unitPrice, max(1, $batchSegments), $spent)) {
+                $capStopped = true;
+                SmsAudit::log(SmsAudit::EVENT_STOPPED, (int) $campaign->id, [
+                    'reason' => 'spend_cap_reached',
+                    'spend_cap' => $spendCap,
+                    'spend' => $spent,
+                    'sent' => $sent,
+                ]);
+                Log::warning("SMS campaign {$campaign->id} stopped: spend cap {$spendCap} reached (spent {$spent})");
             }
         };
 
@@ -257,6 +305,14 @@ final class SmsCampaignSender
             }
         });
         $handle($chunk);
+
+        SmsAudit::log(SmsAudit::EVENT_FINISHED, (int) $campaign->id, [
+            'sent' => $sent,
+            'failed' => $failed,
+            'skipped' => $skipped,
+            'spend' => $spent,
+            'stopped_by_cap' => $capStopped,
+        ]);
 
         return ['sent' => $sent, 'failed' => $failed, 'skipped' => $skipped];
     }
@@ -329,6 +385,19 @@ final class SmsCampaignSender
     private static function measurableBody(string $body): string
     {
         return SmsText::previewShortenedLinks($body, ShortLinkClient::sampleUrl());
+    }
+
+    /**
+     * The per-segment price the SPEND CAP is measured with.
+     *
+     * Pricing here is per country, so there is no single unit price; the cap uses
+     * the dearest configured rate (see SmsBudget::worstCasePrice). Null when no
+     * price is configured at all — with a cap set that means "stop", because an
+     * unmeasurable spend cannot be capped.
+     */
+    public static function unitPrice(): ?float
+    {
+        return SmsBudget::worstCasePrice(SmsPricing::map());
     }
 
     public static function foldEnabled(): bool

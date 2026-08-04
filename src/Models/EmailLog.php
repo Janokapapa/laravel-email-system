@@ -28,6 +28,7 @@ class EmailLog extends Model
         'cc',
         'bcc',
         'status',
+        'provider_message_id',
         'channel',
         'segments',
         'sent_at',
