@@ -47,6 +47,20 @@ class AudienceUsersRelationManager extends RelationManager
 
     protected static ?string $recordTitleAttribute = 'name';
 
+    /**
+     * Whether this list holds any address at all.
+     *
+     * A phone-only list has nothing for ZeroBounce to verify, and a column of
+     * "Unverified" badges against numbers reads as a problem to fix.
+     */
+    protected function listHasEmails(): bool
+    {
+        return AudienceUser::where('email_audience_group_id', $this->getOwnerRecord()->getKey())
+            ->whereNotNull('email')
+            ->where('email', '!=', '')
+            ->exists();
+    }
+
     public function form(Schema $schema): Schema
     {
         return $schema
@@ -55,10 +69,14 @@ class AudienceUsersRelationManager extends RelationManager
                     ->label(__('User Name'))
                     ->required(),
 
+                // Either contact will do, but not neither: a row nobody can be
+                // reached at is a row that silently shrinks every count it
+                // appears in.
                 TextInput::make('email')
                     ->label(__('Email'))
                     ->email()
-                    ->required()
+                    ->requiredWithout('phone')
+                    ->helperText(__('Optional if a phone number is given.'))
                     ->autocomplete('new-password')
                     ->id('edit_user_addr')
                     ->extraInputAttributes([
@@ -70,7 +88,7 @@ class AudienceUsersRelationManager extends RelationManager
                 TextInput::make('phone')
                     ->label(__('Phone'))
                     ->tel()
-                    ->nullable()
+                    ->requiredWithout('email')
                     ->helperText(__('International format with the country code, e.g. +447700900123. Without it the provider guesses the country, which is a wasted message at the wrong price.'))
                     ->rule('nullable')
                     ->dehydrateStateUsing(fn (?string $state): ?string => \JanDev\EmailSystem\Support\Sms\SmsPhone::normalise($state))
@@ -97,7 +115,30 @@ class AudienceUsersRelationManager extends RelationManager
             ->defaultPaginationPageOption(50)
             ->columns([
                 TextColumn::make('name')->label(__('User Name')),
-                TextColumn::make('email')->label(__('Email')),
+
+                // Shown for the same reason the address is: on an SMS list it is
+                // the only contact the row has, and a list whose contents cannot
+                // be seen cannot be checked before a paid send.
+                TextColumn::make('email')
+                    ->label(__('Email'))
+                    ->searchable()
+                    ->placeholder('—'),
+
+                TextColumn::make('phone')
+                    ->label(__('Phone'))
+                    ->searchable()
+                    ->copyable()
+                    ->placeholder('—')
+                    // A stored number that is not in international form cannot be
+                    // sent; flagging it here is cheaper than finding out per
+                    // message.
+                    ->color(fn (?string $state): ?string => $state === null || $state === ''
+                        ? null
+                        : (SmsPhone::isSendable($state) ? null : 'warning'))
+                    ->tooltip(fn (?string $state): ?string => $state !== null && $state !== '' && !SmsPhone::isSendable($state)
+                        ? __('Not in international format, so it cannot be texted.')
+                        : null),
+
                 TextColumn::make('created_at')->label(__('Added At'))->dateTime('Y-m-d H:i:s'),
 
                 IconColumn::make('is_active')
@@ -113,7 +154,7 @@ class AudienceUsersRelationManager extends RelationManager
                     ->formatStateUsing(fn (?string $state, AudienceUser $record): string =>
                         ZeroBounce::getStatusLabelWithSubStatus($state ?? 'unverified', $record->zerobounce_sub_status)
                     )
-                    ->visible(fn () => ZeroBounce::isEnabled()),
+                    ->visible(fn (): bool => ZeroBounce::isEnabled() && $this->listHasEmails()),
 
                 TextColumn::make('bounce_reason')
                     ->label(__('Bounce Reason'))
