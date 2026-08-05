@@ -107,7 +107,7 @@ class AudienceGroupContentWidget extends Widget
      */
     private static function labelFor(string $dial): string
     {
-        $names = \JanDev\EmailSystem\Support\CsvHelper::getCountryOptions();
+        $names = \JanDev\EmailSystem\Support\CsvHelper::getCountryOptions() + SmsPhone::EXTRA_COUNTRY_NAMES;
         $matches = [];
         foreach (SmsPhone::DIAL_CODES as $iso => $code) {
             if ($code === $dial) {

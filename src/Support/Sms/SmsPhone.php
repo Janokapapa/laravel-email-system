@@ -90,6 +90,38 @@ final class SmsPhone
         'RS' => '381', 'LT' => '370', 'LV' => '371', 'EE' => '372', 'CA' => '1',
         'AU' => '61', 'NZ' => '64', 'BR' => '55', 'MX' => '52', 'JP' => '81',
         'IN' => '91', 'ZA' => '27', 'AE' => '971', 'TR' => '90', 'UA' => '380',
+        // Beyond the import's country picker: these are never chosen by an
+        // operator, but numbers from them turn up in real lists and a number
+        // whose country is unknown cannot be named or priced in any report.
+        'TH' => '66', 'PH' => '63', 'MY' => '60', 'SG' => '65', 'ID' => '62',
+        'VN' => '84', 'CN' => '86', 'HK' => '852', 'KR' => '82', 'TW' => '886',
+        'PK' => '92', 'BD' => '880', 'LK' => '94', 'NP' => '977',
+        'IL' => '972', 'SA' => '966', 'QA' => '974', 'KW' => '965', 'EG' => '20',
+        'MA' => '212', 'NG' => '234', 'KE' => '254', 'RU' => '7', 'BY' => '375',
+        'MD' => '373', 'GE' => '995', 'AM' => '374', 'AZ' => '994', 'AL' => '355',
+        'MK' => '389', 'BA' => '387', 'ME' => '382', 'IS' => '354', 'MT' => '356',
+        'CY' => '357', 'LU' => '352', 'AR' => '54', 'CL' => '56', 'CO' => '57',
+        'PE' => '51',
+    ];
+
+    /**
+     * Names for countries the import picker does not list. Only used to label a
+     * number in a report; the picker's own list stays the shorter one.
+     */
+    public const EXTRA_COUNTRY_NAMES = [
+        'TH' => 'Thailand', 'PH' => 'Philippines', 'MY' => 'Malaysia',
+        'SG' => 'Singapore', 'ID' => 'Indonesia', 'VN' => 'Vietnam',
+        'CN' => 'China', 'HK' => 'Hong Kong', 'KR' => 'South Korea',
+        'TW' => 'Taiwan', 'PK' => 'Pakistan', 'BD' => 'Bangladesh',
+        'LK' => 'Sri Lanka', 'NP' => 'Nepal', 'IL' => 'Israel',
+        'SA' => 'Saudi Arabia', 'QA' => 'Qatar', 'KW' => 'Kuwait',
+        'EG' => 'Egypt', 'MA' => 'Morocco', 'NG' => 'Nigeria', 'KE' => 'Kenya',
+        'RU' => 'Russia', 'BY' => 'Belarus', 'MD' => 'Moldova',
+        'GE' => 'Georgia', 'AM' => 'Armenia', 'AZ' => 'Azerbaijan',
+        'AL' => 'Albania', 'MK' => 'North Macedonia', 'BA' => 'Bosnia',
+        'ME' => 'Montenegro', 'IS' => 'Iceland', 'MT' => 'Malta',
+        'CY' => 'Cyprus', 'LU' => 'Luxembourg', 'AR' => 'Argentina',
+        'CL' => 'Chile', 'CO' => 'Colombia', 'PE' => 'Peru',
     ];
 
     /**
