@@ -481,7 +481,7 @@ class CreateCampaign extends CreateRecord
                 ->schema([
                     Placeholder::make('send_summary')
                         ->label('')
-                        ->content(fn (Get $get): HtmlString => \JanDev\EmailSystem\Support\CampaignSummaryBuilder::build($get))
+                        ->content(fn (Get $get): HtmlString => \JanDev\EmailSystem\Support\CampaignSummaryBuilder::build($get, ($get('channel') === Campaign::CHANNEL_SMS)))
                         ->columnSpanFull(),
 
                     Toggle::make('toggle_schedule_later')

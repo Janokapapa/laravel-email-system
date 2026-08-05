@@ -12,7 +12,12 @@ use Illuminate\Support\HtmlString;
 
 class CampaignSummaryBuilder
 {
-    public static function build(Get $get): HtmlString
+    /**
+     * @param bool $isSms an SMS has no sender address, no subject, no HTML
+     *                    format and no address verification, so those rows
+     *                    describe a send that is not about to happen
+     */
+    public static function build(Get $get, bool $isSms = false): HtmlString
     {
         $name = $get('name') ?: '—';
         $senderDisplayName = $get('sender_display_name') ?: '';
@@ -72,15 +77,21 @@ class CampaignSummaryBuilder
         $html .= '<div class="cs-body">';
 
         $html .= '<div class="cs-row"><span class="cs-label">' . __('Campaign') . '</span><span class="cs-value">' . e($name) . '</span></div>';
-        $html .= '<div class="cs-row"><span class="cs-label">' . __('From') . '</span><span class="cs-value">' . $senderFrom . '</span></div>';
-        if ($replyTo && $replyTo !== $senderAddress) {
+        if (!$isSms) {
+            $html .= '<div class="cs-row"><span class="cs-label">' . __('From') . '</span><span class="cs-value">' . $senderFrom . '</span></div>';
+        }
+        if (!$isSms && $replyTo && $replyTo !== $senderAddress) {
             $html .= '<div class="cs-row"><span class="cs-label">' . __('Reply-To') . '</span><span class="cs-value">' . e($replyTo) . '</span></div>';
         }
-        $html .= '<div class="cs-row"><span class="cs-label">' . __('Subject') . '</span><span class="cs-value" style="font-weight:600;">' . e($subject) . '</span></div>';
-        $html .= '<div class="cs-row"><span class="cs-label">' . __('Format') . '</span><span class="cs-value">'
-            . '<span class="cs-badge ' . ($contentType === 'text' ? 'cs-badge-gray' : 'cs-badge-blue') . '">'
-            . ($contentType === 'html' ? 'HTML' : ($contentType === 'both' ? 'HTML + Text' : __('Plain Text')))
-            . '</span></span></div>';
+        if (!$isSms) {
+            $html .= '<div class="cs-row"><span class="cs-label">' . __('Subject') . '</span><span class="cs-value" style="font-weight:600;">' . e($subject) . '</span></div>';
+        }
+        if (!$isSms) {
+            $html .= '<div class="cs-row"><span class="cs-label">' . __('Format') . '</span><span class="cs-value">'
+                . '<span class="cs-badge ' . ($contentType === 'text' ? 'cs-badge-gray' : 'cs-badge-blue') . '">'
+                . ($contentType === 'html' ? 'HTML' : ($contentType === 'both' ? 'HTML + Text' : __('Plain Text')))
+                . '</span></span></div>';
+        }
         if ($skippedNames) {
             $html .= '<div class="cs-row"><span class="cs-label">' . __('Skip') . '</span><span class="cs-value">'
                 . '<span class="cs-badge cs-badge-yellow">' . e($skippedNames) . '</span></span></div>';
@@ -155,8 +166,9 @@ class CampaignSummaryBuilder
             $html .= '</div></div>';
         }
 
-        // ── ZeroBounce Card ──
-        $zbHtml = static::buildZeroBounceHtml($groupIds, $customFieldFilters);
+        // ── ZeroBounce Card ── e-mail only: it verifies addresses, and an SMS
+        // campaign has none.
+        $zbHtml = $isSms ? new HtmlString('') : static::buildZeroBounceHtml($groupIds, $customFieldFilters);
         if ((string) $zbHtml !== '') {
             $html .= (string) $zbHtml;
         }
@@ -164,7 +176,7 @@ class CampaignSummaryBuilder
         // ── Main Body Preview ──
         if ($body) {
             $html .= '<details class="cs-details">';
-            $html .= '<summary><span class="cs-arrow">▶</span> ' . __('Email Body Preview') . '</summary>';
+            $html .= '<summary><span class="cs-arrow">▶</span> ' . ($isSms ? __('Message Preview') : __('Email Body Preview')) . '</summary>';
             if ($contentType === 'html') {
                 $html .= '<iframe class="cs-preview-frame" srcdoc="' . htmlspecialchars($body, ENT_QUOTES, 'UTF-8') . '"></iframe>';
             } else {

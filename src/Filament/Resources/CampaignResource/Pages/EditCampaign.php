@@ -86,6 +86,15 @@ class EditCampaign extends EditRecord
                 ->requiresConfirmation(fn (): bool => !($this->data['toggle_schedule_later'] ?? false))
                 ->modalHeading(__('Send Campaign'))
                 ->modalDescription(function (): string {
+                    // An SMS knows nothing of ZeroBounce, bounced addresses or
+                    // e-mail verification: quoting any of that here described a
+                    // send that was not about to happen. What matters before an
+                    // SMS goes out is how many numbers, how many segments and
+                    // what it costs.
+                    if ($this->record->isSms()) {
+                        return $this->smsSendSummary();
+                    }
+
                     $groupIds = $this->record->audience_group_ids ?? [];
                     $filters = $this->record->custom_field_filters ?? [];
                     $groups = EmailAudienceGroup::whereIn('id', $groupIds)->get();
@@ -164,6 +173,54 @@ class EditCampaign extends EditRecord
 
             DeleteAction::make(),
         ];
+    }
+
+    /**
+     * What is about to be spent, in the words that apply to an SMS.
+     */
+    protected function smsSendSummary(): string
+    {
+        $sender = \JanDev\EmailSystem\Support\Sms\SmsCampaignSender::class;
+
+        $blocked = $sender::blockedReason($this->record);
+        if ($blocked !== null) {
+            return $blocked;
+        }
+
+        $estimate = $sender::estimate($this->record);
+        $recipients = (int) ($estimate['recipients'] ?? 0);
+
+        if ($recipients === 0) {
+            return __('No sendable number in the selected lists. Nothing would be sent.');
+        }
+
+        $msg = __('This will send to :count recipients.', ['count' => number_format($recipients)]);
+        $msg .= "\n" . __(':segments billable segments.', [
+            'segments' => number_format((int) ($estimate['billable_segments'] ?? 0)),
+        ]);
+
+        $cost = $estimate['cost'] ?? null;
+        if ($cost !== null) {
+            $msg .= "\n" . __('Estimated cost: :cost EUR.', ['cost' => number_format((float) $cost, 2)]);
+        }
+
+        // A single character outside the GSM alphabet halves the per-segment
+        // budget, so it is a price change, not a formatting detail.
+        $ucs2 = (int) ($estimate['ucs2_recipients'] ?? 0);
+        if ($ucs2 > 0) {
+            $msg .= "\n⚠️ " . __(':count messages contain a character outside the GSM alphabet and cost double.', [
+                'count' => number_format($ucs2),
+            ]);
+        }
+
+        $remaining = $sender::dailyRemaining();
+        if ($remaining !== null && $remaining < $recipients) {
+            $msg .= "\n⚠️ " . __('The daily cap allows :remaining more today, so the rest will not go out.', [
+                'remaining' => number_format($remaining),
+            ]);
+        }
+
+        return $msg . "\n\n" . __('Continue?');
     }
 
     protected function scheduleCampaign(): void
@@ -629,7 +686,7 @@ class EditCampaign extends EditRecord
                 ->schema([
                     Placeholder::make('send_summary')
                         ->label('')
-                        ->content(fn (Get $get): HtmlString => \JanDev\EmailSystem\Support\CampaignSummaryBuilder::build($get))
+                        ->content(fn (Get $get): HtmlString => \JanDev\EmailSystem\Support\CampaignSummaryBuilder::build($get, $this->record?->isSms() ?? false))
                         ->columnSpanFull(),
 
                     Toggle::make('toggle_schedule_later')
