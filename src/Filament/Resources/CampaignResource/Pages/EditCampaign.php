@@ -44,7 +44,12 @@ use Illuminate\Support\HtmlString;
 
 class EditCampaign extends EditRecord
 {
-    use HasWizard;
+    // Aliased, not called through parent: the method comes from the trait on
+    // this class, so parent:: does not see it and Livewire turns the miss into
+    // a "method does not exist" 500 on every edit screen.
+    use HasWizard {
+        getWizardComponent as protected baseWizardComponent;
+    }
 
     protected static string $resource = CampaignResource::class;
 
@@ -279,7 +284,7 @@ class EditCampaign extends EditRecord
      */
     public function getWizardComponent(): Component
     {
-        return parent::getWizardComponent()->persistStepInQueryString();
+        return $this->baseWizardComponent()->persistStepInQueryString();
     }
 
     protected function getSteps(): array

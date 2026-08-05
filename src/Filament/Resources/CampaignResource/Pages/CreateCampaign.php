@@ -43,7 +43,11 @@ use function JanDev\EmailSystem\resolve_callback;
 
 class CreateCampaign extends CreateRecord
 {
-    use HasWizard;
+    // See EditCampaign: the trait method has to be aliased, parent:: cannot
+    // reach it.
+    use HasWizard {
+        getWizardComponent as protected baseWizardComponent;
+    }
 
     protected static string $resource = CampaignResource::class;
 
@@ -126,7 +130,7 @@ class CreateCampaign extends CreateRecord
      */
     public function getWizardComponent(): Component
     {
-        return parent::getWizardComponent()->persistStepInQueryString();
+        return $this->baseWizardComponent()->persistStepInQueryString();
     }
 
     protected function getSteps(): array
