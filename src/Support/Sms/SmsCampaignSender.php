@@ -177,7 +177,9 @@ final class SmsCampaignSender
             return ['sent' => 0, 'failed' => 0, 'skipped' => 0];
         }
 
-        $rawBody = (string) $campaign->body;
+        // Markup can only have arrived by accident; sending it would charge
+        // the recipient's segment budget for tags they cannot see.
+        $rawBody = SmsText::stripHtml((string) $campaign->body);
         $urls = SmsText::extractUrls($rawBody);
         $fold = self::foldEnabled();
 
@@ -384,7 +386,9 @@ final class SmsCampaignSender
     /** Body as measured: links stand in at their shortened length. */
     private static function measurableBody(string $body): string
     {
-        return SmsText::previewShortenedLinks($body, ShortLinkClient::sampleUrl());
+        // Measured the same way it is sent, or the quote is for a different
+        // message than the one that goes out.
+        return SmsText::previewShortenedLinks(SmsText::stripHtml($body), ShortLinkClient::sampleUrl());
     }
 
     /**

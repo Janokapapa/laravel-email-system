@@ -105,6 +105,57 @@ final class SmsText
     ];
 
     /**
+     * A message body with any HTML taken out of it.
+     *
+     * An SMS carries text and nothing else, so markup is not merely useless: a
+     * "<p>" is three characters the recipient sees and pays for, and it pushes
+     * the message over a segment boundary for no benefit. Bodies pick up markup
+     * when a campaign is edited on a screen that also has an HTML editor bound
+     * to the same field, so the body is cleaned rather than trusted.
+     *
+     * Block ends become newlines instead of vanishing, or two paragraphs would
+     * run into one word.
+     */
+    public static function stripHtml(string $text): string
+    {
+        if (!preg_match('/<[a-z\/!][^>]*>|&[a-z#0-9]+;/i', $text)) {
+            return $text;
+        }
+
+        // An anchor hides the URL in an attribute, and the URL is the point of a
+        // promotional message. Stripping tags first would send "Claim" with
+        // nowhere to claim it.
+        $text = preg_replace_callback(
+            '~<a\b[^>]*href=["\']([^"\']+)["\'][^>]*>(.*?)</a>~is',
+            function (array $m): string {
+                $url = trim($m[1]);
+                $label = trim(strip_tags($m[2]));
+
+                if ($label === '' || str_contains($url, $label) || str_contains($label, $url)) {
+                    return $url;
+                }
+
+                return $label . ' ' . $url;
+            },
+            $text
+        ) ?? $text;
+
+        $text = preg_replace('~<br\s*/?>~i', "\n", $text) ?? $text;
+        $text = preg_replace('~</(p|div|li|tr|h[1-6])\s*>~i', "\n", $text) ?? $text;
+        $text = strip_tags($text);
+        $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+
+        // Non-breaking spaces read as spaces but are not GSM-7, so a single one
+        // would halve the segment budget.
+        $text = str_replace("\xC2\xA0", ' ', $text);
+
+        $text = preg_replace('/[ \t]+/', ' ', $text) ?? $text;
+        $text = preg_replace('/\n{3,}/', "\n\n", $text) ?? $text;
+
+        return trim($text);
+    }
+
+    /**
      * URLs found in a message body.
      *
      * @return list<string>

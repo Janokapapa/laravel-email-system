@@ -481,13 +481,21 @@ class EditCampaign extends EditRecord
                     Hidden::make('_html_body_cache')->dehydrated(false),
                     Hidden::make('_text_body_cache')->dehydrated(false),
 
+                    // Everything below belongs to an e-mail: an SMS has no
+                    // subject, no HTML body and no A/B variations. Worse than
+                    // clutter, the editor binds to the same `body` field as the
+                    // SMS message box, so leaving it on screen let it overwrite
+                    // the message with markup.
                     TextInput::make('subject')
                         ->label(__('Subject'))
-                        ->required(),
+                        ->visible(fn (): bool => !($this->record?->isSms() ?? false))
+                        ->required(fn (): bool => !($this->record?->isSms() ?? false)),
 
-                    $this->buildPlaceholderHint(),
+                    $this->buildPlaceholderHint()
+                        ->visible(fn (): bool => !($this->record?->isSms() ?? false)),
 
                     Field::make('body')
+                        ->visible(fn (): bool => !($this->record?->isSms() ?? false))
                         ->label(__('Email Body'))
                         ->view('email-system::forms.tinymce')
                         ->extraAttributes(fn (Get $get) => [
@@ -497,9 +505,10 @@ class EditCampaign extends EditRecord
                         ->columnSpanFull()
                         ->dehydrated(true)
                         ->dehydrateStateUsing(fn ($state) => $state)
-                        ->required(),
+                        ->required(fn (): bool => !($this->record?->isSms() ?? false)),
 
                     Section::make(__('Variations'))
+                        ->visible(fn (): bool => !($this->record?->isSms() ?? false))
                         ->description(__('Subject/body variations — the sender randomly picks one per recipient.'))
                         ->collapsible()
                         ->collapsed()
@@ -554,6 +563,7 @@ class EditCampaign extends EditRecord
 
                     TextInput::make('test_email')
                         ->label(__('Test Email Address'))
+                        ->visible(fn (): bool => !($this->record?->isSms() ?? false))
                         ->email()
                         ->default(fn () => auth()->user()->email ?? '')
                         ->suffixAction(

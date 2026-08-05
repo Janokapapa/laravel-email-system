@@ -347,13 +347,19 @@ class CreateCampaign extends CreateRecord
                     Hidden::make('_html_body_cache')->dehydrated(false),
                     Hidden::make('_text_body_cache')->dehydrated(false),
 
+                    // E-mail only. The HTML editor binds to the same `body`
+                    // field as the SMS message box above it, so on an SMS
+                    // campaign it would quietly replace the message with markup.
                     TextInput::make('subject')
                         ->label(__('Subject'))
-                        ->required(),
+                        ->visible(fn (Get $get): bool => $get('channel') !== Campaign::CHANNEL_SMS)
+                        ->required(fn (Get $get): bool => $get('channel') !== Campaign::CHANNEL_SMS),
 
-                    static::buildPlaceholderHint(),
+                    static::buildPlaceholderHint()
+                        ->visible(fn (Get $get): bool => $get('channel') !== Campaign::CHANNEL_SMS),
 
                     Field::make('body')
+                        ->visible(fn (Get $get): bool => $get('channel') !== Campaign::CHANNEL_SMS)
                         ->label(__('Email Body'))
                         ->view('email-system::forms.tinymce')
                         ->extraAttributes(fn (Get $get) => [
@@ -363,9 +369,10 @@ class CreateCampaign extends CreateRecord
                         ->columnSpanFull()
                         ->dehydrated(true)
                         ->dehydrateStateUsing(fn ($state) => $state)
-                        ->required(),
+                        ->required(fn (Get $get): bool => $get('channel') !== Campaign::CHANNEL_SMS),
 
                     Section::make(__('Variations'))
+                        ->visible(fn (Get $get): bool => $get('channel') !== Campaign::CHANNEL_SMS)
                         ->description(__('Subject/body variations — the sender randomly picks one per recipient.'))
                         ->collapsible()
                         ->collapsed()
@@ -419,6 +426,7 @@ class CreateCampaign extends CreateRecord
 
                     TextInput::make('test_email')
                         ->label(__('Test Email Address'))
+                        ->visible(fn (Get $get): bool => $get('channel') !== Campaign::CHANNEL_SMS)
                         ->email()
                         ->default(fn () => auth()->user()->email ?? '')
                         ->suffixAction(
