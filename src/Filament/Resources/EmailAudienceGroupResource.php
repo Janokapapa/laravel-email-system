@@ -5,6 +5,7 @@ namespace JanDev\EmailSystem\Filament\Resources;
 use JanDev\EmailSystem\Filament\Resources\EmailAudienceGroupResource\Pages;
 use JanDev\EmailSystem\Filament\Resources\EmailAudienceGroupResource\RelationManagers\AudienceUsersRelationManager;
 use JanDev\EmailSystem\Models\EmailAudienceGroup;
+use JanDev\EmailSystem\Support\Sms\SmsPhone;
 use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Forms\Components\TextInput;
@@ -63,6 +64,14 @@ class EmailAudienceGroupResource extends Resource
                 'audienceUsers as zb_unverified_count' => fn ($q) => $q->where(function ($q2) {
                     $q2->whereNull('zerobounce_status')->orWhere('zerobounce_status', 'unverified');
                 }),
+                // What the list can actually be used for. Counted from its
+                // contents rather than a flag set at import: a flag goes stale
+                // the first time someone adds rows of the other kind, and a
+                // list that claims to be textable but is not is found out at
+                // send time.
+                'audienceUsers as email_count' => fn ($q) => $q->whereNotNull('email')->where('email', '!=', ''),
+                'audienceUsers as sms_count' => fn ($q) => $q->whereNotNull('phone')
+                    ->where('phone', 'REGEXP', SmsPhone::E164_SQL_REGEX),
             ]))
             ->defaultSort('created_at', 'desc')
             ->columns([
@@ -70,6 +79,33 @@ class EmailAudienceGroupResource extends Resource
                     ->label(__('Group Name'))
                     ->searchable()
                     ->sortable(),
+                TextColumn::make('list_type')
+                    ->label(__('Contains'))
+                    ->badge()
+                    ->getStateUsing(function ($record): string {
+                        $hasEmail = ($record->email_count ?? 0) > 0;
+                        $hasSms = ($record->sms_count ?? 0) > 0;
+
+                        return match (true) {
+                            $hasEmail && $hasSms => __('Email + SMS'),
+                            $hasSms => __('SMS'),
+                            $hasEmail => __('Email'),
+                            default => __('Empty'),
+                        };
+                    })
+                    ->color(fn (string $state): string => match ($state) {
+                        __('Email + SMS') => 'success',
+                        __('SMS') => 'info',
+                        __('Email') => 'warning',
+                        default => 'gray',
+                    })
+                    ->description(fn ($record): string => trim(sprintf(
+                        '%s %s · %s %s',
+                        number_format($record->email_count ?? 0),
+                        __('addresses'),
+                        number_format($record->sms_count ?? 0),
+                        __('numbers')
+                    ))),
                 TextColumn::make('created_at')
                     ->label(__('Created At'))
                     ->dateTime('Y-m-d H:i:s')
@@ -99,7 +135,34 @@ class EmailAudienceGroupResource extends Resource
                     ->color(fn ($state) => $state > 0 ? 'warning' : null),
                 ...static::getExtraColumns(),
             ])
-            ->filters([]);
+            ->filters([
+                // Asked of a long list of lists: "which of these can I text?"
+                \Filament\Tables\Filters\SelectFilter::make('contains')
+                    ->label(__('Contains'))
+                    ->options([
+                        'sms' => __('Phone numbers'),
+                        'email' => __('Email addresses'),
+                        'both' => __('Both'),
+                    ])
+                    ->query(function ($query, array $data) {
+                        $value = $data['value'] ?? null;
+                        if (!$value) {
+                            return $query;
+                        }
+
+                        $hasPhone = fn ($q) => $q->whereNotNull('phone')
+                            ->where('phone', 'REGEXP', SmsPhone::E164_SQL_REGEX);
+                        $hasEmail = fn ($q) => $q->whereNotNull('email')->where('email', '!=', '');
+
+                        return match ($value) {
+                            'sms' => $query->whereHas('audienceUsers', $hasPhone),
+                            'email' => $query->whereHas('audienceUsers', $hasEmail),
+                            'both' => $query->whereHas('audienceUsers', $hasPhone)
+                                ->whereHas('audienceUsers', $hasEmail),
+                            default => $query,
+                        };
+                    }),
+            ]);
     }
 
     /**

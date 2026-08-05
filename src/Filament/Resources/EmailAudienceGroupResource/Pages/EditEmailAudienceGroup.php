@@ -15,6 +15,7 @@ class EditEmailAudienceGroup extends EditRecord
     {
         return [
             AudienceGroupStatsWidget::class,
+            \JanDev\EmailSystem\Filament\Widgets\AudienceGroupContentWidget::class,
         ];
     }
 
