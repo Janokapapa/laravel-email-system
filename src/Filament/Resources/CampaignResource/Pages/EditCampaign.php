@@ -468,13 +468,14 @@ class EditCampaign extends EditRecord
 
                     Select::make('content_type')
                         ->label(__('Content Type'))
+                        ->visible(fn (): bool => !($this->record?->isSms() ?? false))
                         ->options([
                             'both' => __('Both (HTML + Text)'),
                             'html' => __('HTML'),
                             'text' => __('Plain Text'),
                         ])
                         ->default('both')
-                        ->required()
+                        ->required(fn (): bool => !($this->record?->isSms() ?? false))
                         ->live()
                         ->afterStateUpdated(fn (Get $get, Set $set, ?string $old, ?string $state) => ContentTypeConverter::handleContentTypeSwitch($get, $set, $old, $state)),
 
