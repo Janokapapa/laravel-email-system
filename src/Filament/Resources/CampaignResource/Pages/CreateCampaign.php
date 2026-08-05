@@ -30,6 +30,7 @@ use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Forms\Components\ViewField;
 use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\Component;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
 use Filament\Notifications\Notification;
@@ -112,6 +113,20 @@ class CreateCampaign extends CreateRecord
     public function getTitle(): string
     {
         return __('New Campaign');
+    }
+
+
+    /**
+     * Keep the current step in the URL.
+     *
+     * Without this a refresh, or following a link back into the wizard, drops
+     * the operator on step one and every earlier step has to be walked again -
+     * which on a campaign means re-confirming an audience and a body just to
+     * look at the last step.
+     */
+    public function getWizardComponent(): Component
+    {
+        return parent::getWizardComponent()->persistStepInQueryString();
     }
 
     protected function getSteps(): array
