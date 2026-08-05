@@ -437,11 +437,27 @@ class CreateCampaign extends CreateRecord
                 ->schema([
                     Placeholder::make('test_hint')
                         ->label('')
-                        ->content(new HtmlString(
+                        ->content(fn (Get $get): HtmlString => new HtmlString(
                             '<p class="text-sm text-gray-600 dark:text-gray-400">' .
-                            __('Send a test email to verify the campaign before sending.') .
+                            ($get('channel') === Campaign::CHANNEL_SMS
+                                ? __('Send the real message to your own number first. Links are shortened exactly as they will be for a recipient.')
+                                : __('Send a test email to verify the campaign before sending.')) .
                             '</p>'
                         )),
+
+                    // A test SMS goes to these numbers and to nobody else: the
+                    // sender treats them as a replacement for the audience, so a
+                    // mis-click cannot text the list.
+                    TextInput::make('test_phone')
+                        ->label(__('Test Phone Number(s)'))
+                        ->visible(fn (Get $get): bool => $get('channel') === Campaign::CHANNEL_SMS)
+                        ->helperText(__('International format, e.g. +447700900123. Several numbers may be separated by commas. The test counts against the daily cap.'))
+                        ->suffixAction(
+                            \Filament\Actions\Action::make('send_test_sms')
+                                ->label(__('Send Test SMS'))
+                                ->icon('heroicon-o-device-phone-mobile')
+                                ->action(fn () => $this->sendTestSms())
+                        ),
 
                     TextInput::make('test_email')
                         ->label(__('Test Email Address'))
@@ -493,6 +509,57 @@ class CreateCampaign extends CreateRecord
     /**
      * Save draft campaign state after each wizard step.
      */
+    /**
+     * Send the draft's message to hand-typed numbers.
+     *
+     * The draft is saved first: a test that goes out with the previous text
+     * reads as confirmation of an edit that was never sent.
+     */
+    public function sendTestSms(): void
+    {
+        $numbers = \JanDev\EmailSystem\Support\Sms\SmsPhone::parseList((string) ($this->data['test_phone'] ?? ''));
+        if ($numbers === []) {
+            Notification::make()
+                ->title(__('No usable number'))
+                ->body(__('Use international format, starting with + or 00.'))
+                ->danger()
+                ->send();
+            return;
+        }
+
+        $this->data['body'] = \JanDev\EmailSystem\Support\Sms\SmsText::stripHtml((string) ($this->data['body'] ?? ''));
+        $this->saveStepDraft(4);
+
+        $campaign = $this->draftCampaignId ? Campaign::find($this->draftCampaignId) : null;
+        if (!$campaign) {
+            Notification::make()
+                ->title(__('Nothing to test yet'))
+                ->body(__('Complete the earlier steps first.'))
+                ->danger()
+                ->send();
+            return;
+        }
+
+        $result = \JanDev\EmailSystem\Support\Sms\SmsCampaignSender::send($campaign, $numbers);
+
+        if (($result['sent'] ?? 0) === 0) {
+            $blocked = \JanDev\EmailSystem\Support\Sms\SmsCampaignSender::blockedReason($campaign);
+
+            Notification::make()
+                ->title(__('Test SMS not sent'))
+                ->body($blocked ?? __('The provider rejected every number. See the email log for the reason.'))
+                ->danger()
+                ->send();
+            return;
+        }
+
+        Notification::make()
+            ->title(__('Test SMS sent'))
+            ->body(__(':sent sent, :failed failed.', ['sent' => $result['sent'], 'failed' => $result['failed'] ?? 0]))
+            ->success()
+            ->send();
+    }
+
     protected function saveStepDraft(int $step): void
     {
         try {

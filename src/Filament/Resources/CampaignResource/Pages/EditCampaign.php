@@ -16,6 +16,7 @@ use JanDev\EmailSystem\Support\CampaignFilterBuilder;
 use JanDev\EmailSystem\Support\ContentTypeConverter;
 use JanDev\EmailSystem\Support\SenderResolver;
 use JanDev\EmailSystem\Support\Sms\ShortLinkClient;
+use JanDev\EmailSystem\Support\Sms\SmsPhone;
 use JanDev\EmailSystem\Support\Sms\SmsPricing;
 use JanDev\EmailSystem\Support\Sms\SmsText;
 use Illuminate\Support\Facades\Cache;
@@ -575,12 +576,36 @@ class EditCampaign extends EditRecord
                 ->schema([
                     Placeholder::make('test_hint')
                         ->label('')
+                        ->visible(fn (): bool => !($this->record?->isSms() ?? false))
                         ->content(new HtmlString(
                             '<p class="text-sm text-gray-600 dark:text-gray-400">' .
                             __('Send a test email to verify the campaign before sending.') .
                             ' <a href="' . route('email-system.campaign.preview', $this->record->id) . '" target="_blank" class="text-primary-600 underline">' . __('Web Preview') . '</a>' .
                             '</p>'
                         )),
+
+                    Placeholder::make('sms_test_hint')
+                        ->label('')
+                        ->visible(fn (): bool => $this->record?->isSms() ?? false)
+                        ->content(new HtmlString(
+                            '<p class="text-sm text-gray-600 dark:text-gray-400">' .
+                            __('Send the real message to your own number first. Links are shortened exactly as they will be for a recipient, and the test counts against the daily cap like any other message.') .
+                            '</p>'
+                        )),
+
+                    // A test SMS goes to numbers typed here and to nobody else:
+                    // the sender treats them as a replacement for the audience,
+                    // never an addition, so a mis-click cannot text the list.
+                    TextInput::make('test_phone')
+                        ->label(__('Test Phone Number(s)'))
+                        ->visible(fn (): bool => $this->record?->isSms() ?? false)
+                        ->helperText(__('International format, e.g. +447700900123. Several numbers may be separated by commas.'))
+                        ->suffixAction(
+                            \Filament\Actions\Action::make('send_test_sms')
+                                ->label(__('Send Test SMS'))
+                                ->icon('heroicon-o-device-phone-mobile')
+                                ->action(fn () => $this->sendTestSms())
+                        ),
 
                     TextInput::make('test_email')
                         ->label(__('Test Email Address'))
@@ -723,6 +748,58 @@ class EditCampaign extends EditRecord
     protected function getRedirectUrl(): string
     {
         return $this->getResource()::getUrl('edit', ['record' => $this->record]);
+    }
+
+    /**
+     * Send the campaign's message to hand-typed numbers.
+     *
+     * The body is taken from the form and saved first: a test that goes out
+     * with the previously saved text is worse than no test, because it reads as
+     * confirmation of an edit that was never sent.
+     */
+    public function sendTestSms(): void
+    {
+        $state = $this->form->getState();
+
+        $numbers = SmsPhone::parseList((string) ($state['test_phone'] ?? ''));
+        if ($numbers === []) {
+            Notification::make()
+                ->title(__('No usable number'))
+                ->body(__('Use international format, starting with + or 00.'))
+                ->danger()
+                ->send();
+            return;
+        }
+
+        $body = SmsText::stripHtml((string) ($state['body'] ?? ''));
+        if (trim($body) === '') {
+            Notification::make()
+                ->title(__('The message is empty'))
+                ->danger()
+                ->send();
+            return;
+        }
+
+        $this->record->update(['body' => $body]);
+
+        $result = \JanDev\EmailSystem\Support\Sms\SmsCampaignSender::send($this->record, $numbers);
+
+        if (($result['sent'] ?? 0) === 0) {
+            $blocked = \JanDev\EmailSystem\Support\Sms\SmsCampaignSender::blockedReason($this->record);
+
+            Notification::make()
+                ->title(__('Test SMS not sent'))
+                ->body($blocked ?? __('The provider rejected every number. See the email log for the reason.'))
+                ->danger()
+                ->send();
+            return;
+        }
+
+        Notification::make()
+            ->title(__('Test SMS sent'))
+            ->body(__(':sent sent, :failed failed.', ['sent' => $result['sent'], 'failed' => $result['failed'] ?? 0]))
+            ->success()
+            ->send();
     }
 
     public function sendTestEmail(): void
