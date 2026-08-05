@@ -66,7 +66,7 @@ class AudienceUserResource extends Resource
                     ]),
 
                 Select::make('email_audience_group_id')
-                    ->label(__('Email List'))
+                    ->label(__('List'))
                     ->relationship('emailAudienceGroup', 'name')
                     ->required(),
 
@@ -85,7 +85,7 @@ class AudienceUserResource extends Resource
             ->columns([
                 TextColumn::make('name')->label(__('User Name')),
                 TextColumn::make('email')->label(__('Email')),
-                TextColumn::make('emailAudienceGroup.name')->label(__('Email List')),
+                TextColumn::make('emailAudienceGroup.name')->label(__('List')),
                 TextColumn::make('created_at')->label(__('Added At'))->dateTime('Y-m-d H:i:s'),
 
                 IconColumn::make('is_active')

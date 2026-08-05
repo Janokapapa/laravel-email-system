@@ -196,7 +196,7 @@ class CreateCampaign extends CreateRecord
                 ->icon('heroicon-o-users')
                 ->schema([
                     Select::make('audience_group_ids')
-                        ->label(__('Email Lists'))
+                        ->label(__('Lists'))
                         ->options(function () {
                             $counts = \Illuminate\Support\Facades\DB::table('audience_users')
                                 ->selectRaw('email_audience_group_id, COUNT(*) as cnt')

@@ -17,9 +17,13 @@ class EmailAudienceGroupResource extends Resource
 
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-user-group';
 
+    // A group is channel-agnostic: one email_audience_groups row feeds both an
+    // e-mail campaign and an SMS one (SmsCampaignSender reads the same
+    // email_audience_group_id). Calling it an "Email List" in the UI made the
+    // SMS side look like it needed a list of its own.
     public static function getNavigationLabel(): string
     {
-        return __('Email Lists');
+        return __('Lists');
     }
 
     public static function getNavigationGroup(): ?string
@@ -29,12 +33,12 @@ class EmailAudienceGroupResource extends Resource
 
     public static function getModelLabel(): string
     {
-        return __('Email List');
+        return __('List');
     }
 
     public static function getPluralModelLabel(): string
     {
-        return __('Email Lists');
+        return __('Lists');
     }
 
     public static function form(Schema $schema): Schema
