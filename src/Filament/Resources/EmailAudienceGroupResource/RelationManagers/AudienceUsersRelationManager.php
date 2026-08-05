@@ -702,11 +702,14 @@ class AudienceUsersRelationManager extends RelationManager
                     ? __('The first row will be skipped.')
                     : __('All rows will be imported as data.')),
 
+            // Optional: a number export often carries no names at all, and a
+            // nameless contact is still reachable. The column stores an empty
+            // string in that case.
             Select::make('map_name')
                 ->label(__('Name'))
                 ->options(fn (): array => $this->csvColumnOptions)
                 ->visible(fn (): bool => !empty($this->csvColumnOptions))
-                ->required(fn (): bool => !empty($this->csvColumnOptions)),
+                ->helperText(__('Optional. Leave empty if the file has no names.')),
 
             // Email and phone are each optional on their own, but a row needs at
             // least one of them — an SMS list has numbers and no addresses, an
@@ -846,10 +849,14 @@ class AudienceUsersRelationManager extends RelationManager
         $phoneIdx = ($data['map_phone'] ?? '') !== '' ? (int) $data['map_phone'] : null;
         $zbIdx = ($data['map_zerobounce_status'] ?? '') !== '' ? (int) $data['map_zerobounce_status'] : null;
 
-        if ($nameIdx === null || $emailIdx === null) {
+        // The only mapping the import cannot do without is a way to reach the
+        // person. Which one depends on the channel, so either column will do;
+        // demanding both rejected phone-only SMS files outright, and demanding a
+        // name rejected exports that simply have no name column.
+        if (($mappingError = CsvHelper::mappingError($emailIdx, $phoneIdx)) !== null) {
             Notification::make()
                 ->title(__('Error'))
-                ->body(__('Name and Email column mapping is required.'))
+                ->body($mappingError)
                 ->danger()
                 ->send();
             return;
@@ -926,14 +933,15 @@ class AudienceUsersRelationManager extends RelationManager
             }
 
             $row = str_getcsv($line, $separator);
-            $name = trim($row[$nameIdx] ?? '');
+            $name = $nameIdx !== null ? trim($row[$nameIdx] ?? '') : '';
             $email = $emailIdx !== null ? trim($row[$emailIdx] ?? '') : '';
             $rawPhone = $phoneIdx !== null ? trim($row[$phoneIdx] ?? '') : '';
             $phone = $rawPhone !== '' ? SmsPhone::normalise($rawPhone) : null;
 
-            // A row needs a name and at least one usable contact. Requiring an
-            // e-mail would throw away every row of a phone-only SMS list.
-            if ($name === '' || CsvHelper::contactError($email, $rawPhone) !== null) {
+            // A row needs one usable contact and nothing else. Requiring an
+            // e-mail would throw away every row of a phone-only SMS list;
+            // requiring a name would throw away a nameless number export.
+            if (CsvHelper::contactError($email, $rawPhone) !== null) {
                 $skippedInvalid++;
                 continue;
             }

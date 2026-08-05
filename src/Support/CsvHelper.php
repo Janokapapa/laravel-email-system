@@ -60,6 +60,25 @@ class CsvHelper
         return null;
     }
 
+    /**
+     * Whether the chosen column mapping can produce reachable contacts.
+     *
+     * The name column is not part of this: a nameless number is still a valid
+     * contact, and several real exports carry no name at all. Only the means of
+     * contact matters, and either one will do — which one is right depends on
+     * the channel the list will be used for.
+     *
+     * @return string|null null when the mapping is usable, else the reason
+     */
+    public static function mappingError(?int $emailIdx, ?int $phoneIdx): ?string
+    {
+        if ($emailIdx === null && $phoneIdx === null) {
+            return 'Map an Email column or a Phone column (either one is enough).';
+        }
+
+        return null;
+    }
+
     public static function buildHeader(): array
     {
         $definitions = AudienceUser::getCustomFieldDefinitions();
