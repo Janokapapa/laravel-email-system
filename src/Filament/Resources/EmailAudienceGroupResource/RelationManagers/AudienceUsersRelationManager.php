@@ -7,6 +7,7 @@ use JanDev\EmailSystem\Models\AudienceUser;
 use JanDev\EmailSystem\Services\ZeroBounce;
 use JanDev\EmailSystem\Support\CustomFieldComponents;
 use JanDev\EmailSystem\Support\CsvHelper;
+use JanDev\EmailSystem\Support\Sms\SmsPhone;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Schemas\Schema;
 use Filament\Forms\Components\TextInput;
@@ -647,6 +648,12 @@ class AudienceUsersRelationManager extends RelationManager
                         $claimedIndices[] = $emailIdx;
                     }
 
+                    $phoneIdx = CsvHelper::autoDetectColumn($headers, CsvHelper::PHONE_ALIASES, $claimedIndices);
+                    if ($phoneIdx !== null) {
+                        $set('map_phone', $phoneIdx);
+                        $claimedIndices[] = $phoneIdx;
+                    }
+
                     $zbIdx = CsvHelper::autoDetectColumn($headers, [
                         'zerobounce_status', 'zerobounce', 'zb_status', 'zb',
                         'zerobounce_statusz', 'bounce_status', 'email_status',
@@ -701,11 +708,22 @@ class AudienceUsersRelationManager extends RelationManager
                 ->visible(fn (): bool => !empty($this->csvColumnOptions))
                 ->required(fn (): bool => !empty($this->csvColumnOptions)),
 
+            // Email and phone are each optional on their own, but a row needs at
+            // least one of them — an SMS list has numbers and no addresses, an
+            // e-mail list the other way round. The per-row rule is enforced in
+            // the importer (CsvHelper::contactError); requiring the column here
+            // would reject a valid phone-only file before it is even read.
             Select::make('map_email')
                 ->label(__('Email'))
                 ->options(fn (): array => $this->csvColumnOptions)
                 ->visible(fn (): bool => !empty($this->csvColumnOptions))
-                ->required(fn (): bool => !empty($this->csvColumnOptions)),
+                ->helperText(__('Leave empty for an SMS-only list.')),
+
+            Select::make('map_phone')
+                ->label(__('Phone'))
+                ->options(fn (): array => $this->csvColumnOptions)
+                ->visible(fn (): bool => !empty($this->csvColumnOptions))
+                ->helperText(__('Required for SMS campaigns. Numbers are normalised on import.')),
 
         ];
 
@@ -825,6 +843,7 @@ class AudienceUsersRelationManager extends RelationManager
 
         $nameIdx = ($data['map_name'] ?? '') !== '' ? (int) $data['map_name'] : null;
         $emailIdx = ($data['map_email'] ?? '') !== '' ? (int) $data['map_email'] : null;
+        $phoneIdx = ($data['map_phone'] ?? '') !== '' ? (int) $data['map_phone'] : null;
         $zbIdx = ($data['map_zerobounce_status'] ?? '') !== '' ? (int) $data['map_zerobounce_status'] : null;
 
         if ($nameIdx === null || $emailIdx === null) {
@@ -908,14 +927,13 @@ class AudienceUsersRelationManager extends RelationManager
 
             $row = str_getcsv($line, $separator);
             $name = trim($row[$nameIdx] ?? '');
-            $email = trim($row[$emailIdx] ?? '');
+            $email = $emailIdx !== null ? trim($row[$emailIdx] ?? '') : '';
+            $rawPhone = $phoneIdx !== null ? trim($row[$phoneIdx] ?? '') : '';
+            $phone = $rawPhone !== '' ? SmsPhone::normalise($rawPhone) : null;
 
-            $validator = Validator::make(
-                ['name' => $name, 'email' => $email],
-                ['name' => 'required|string', 'email' => 'required|email'],
-            );
-
-            if ($validator->fails()) {
+            // A row needs a name and at least one usable contact. Requiring an
+            // e-mail would throw away every row of a phone-only SMS list.
+            if ($name === '' || CsvHelper::contactError($email, $rawPhone) !== null) {
                 $skippedInvalid++;
                 continue;
             }
@@ -953,12 +971,24 @@ class AudienceUsersRelationManager extends RelationManager
             }
 
             // Check if user already exists in this group — update instead of skip
-            $existing = AudienceUser::where('email', $email)
-                ->where('email_audience_group_id', $groupId)
-                ->first();
+            // Match on whichever contact this list actually has: an SMS list has
+            // no addresses, so keying on e-mail alone would re-insert every
+            // number on each import.
+            $existingQuery = AudienceUser::where('email_audience_group_id', $groupId);
+            if ($email !== '') {
+                $existingQuery->where('email', $email);
+            } else {
+                $existingQuery->where('phone', $phone);
+            }
+            $existing = $existingQuery->first();
 
             if ($existing) {
                 $updateData = ['name' => $name];
+                // Only overwrite a stored number when the file actually carries
+                // one: a re-import from an e-mail-only export must not wipe it.
+                if ($phone !== null) {
+                    $updateData['phone'] = $phone;
+                }
                 if (!empty($customFields)) {
                     $updateData['custom_fields'] = array_merge($existing->custom_fields ?? [], $customFields);
                 }
@@ -977,7 +1007,8 @@ class AudienceUsersRelationManager extends RelationManager
 
             $createData = [
                 'name' => $name,
-                'email' => $email,
+                'email' => $email !== '' ? $email : null,
+                'phone' => $phone,
                 'is_active' => true,
                 'email_audience_group_id' => $groupId,
                 'custom_fields' => $customFields,

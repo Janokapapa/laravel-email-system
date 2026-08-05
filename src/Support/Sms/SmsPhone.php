@@ -23,10 +23,23 @@ final class SmsPhone
     /** The same rule for a SQL REGEXP clause. Note `[+]`, so no escape can be lost. */
     public const E164_SQL_REGEX = '^[+][1-9][0-9]{6,14}$';
 
-    /** Whether the number can be handed to the provider as-is. */
+    /**
+     * Whether the number can be handed to the provider AS-IS.
+     *
+     * Deliberately stricter than normalise(): "00447700900123" is a valid number
+     * but the provider will not take it in that form, so this says no while
+     * normalise() converts it. Callers that store or send should normalise
+     * first; callers that validate what is already stored use this.
+     */
     public static function isSendable(?string $phone): bool
     {
-        return self::normalise($phone) !== null;
+        if ($phone === null) {
+            return false;
+        }
+
+        $clean = preg_replace('/[\s\-().]/', '', trim($phone)) ?? '';
+
+        return preg_match(self::E164_REGEX, $clean) === 1;
     }
 
     /**
@@ -34,6 +47,12 @@ final class SmsPhone
      *
      * Formatting characters a human might type are tolerated; a missing country
      * code is not.
+     *
+     * A leading 00 is accepted as the international prefix and rewritten to '+'.
+     * That is how most European exports write an international number, and
+     * rejecting it silently dropped every row of such a file on import. A bare
+     * national number (07700900123) is still refused: the country would have to
+     * be guessed, and a guess here means texting a stranger.
      */
     public static function normalise(?string $phone): ?string
     {
@@ -42,6 +61,11 @@ final class SmsPhone
         }
 
         $clean = preg_replace('/[\s\-().]/', '', trim($phone)) ?? '';
+
+        // 00 + country code is the same number as + country code.
+        if (str_starts_with($clean, '00')) {
+            $clean = '+' . substr($clean, 2);
+        }
 
         return preg_match(self::E164_REGEX, $clean) === 1 ? $clean : null;
     }

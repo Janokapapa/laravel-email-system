@@ -13,6 +13,53 @@ class CsvHelper
      *
      * @return array<string>
      */
+    /**
+     * Header spellings that mean "phone number".
+     *
+     * Operators export from whatever system they have and do not rename the
+     * columns, so the list covers the English and Hungarian forms seen in real
+     * files. Kept as a constant rather than inline so the import form and the
+     * importer cannot drift apart.
+     */
+    public const PHONE_ALIASES = [
+        'phone', 'phone_number', 'phonenumber', 'mobile', 'mobile_number',
+        'mobilephone', 'mobile_phone', 'msisdn', 'cell', 'cellphone', 'cell_phone',
+        'tel', 'telephone', 'telefon', 'telefonszam', 'telefonszám', 'mobil',
+        'contact_phone', 'user_phone', 'number',
+    ];
+
+    /**
+     * Why this row cannot be imported, or null when it can.
+     *
+     * A contact has to be reachable SOME way. Which way depends on the channel:
+     * an e-mail list has addresses, an SMS list has numbers, and requiring both
+     * would reject every real list of either kind. So the rule is "at least one
+     * usable contact".
+     *
+     * A malformed e-mail is rejected even when a phone is present: a row that
+     * looks e-mailable and is not will be discovered later, by a campaign.
+     * A malformed PHONE is tolerated when an e-mail exists — an e-mail list with
+     * a junk phone column is still a good e-mail list, and the number is simply
+     * dropped.
+     */
+    public static function contactError(?string $email, ?string $phone): ?string
+    {
+        $email = trim((string) $email);
+        $phone = trim((string) $phone);
+
+        if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            return 'invalid email';
+        }
+
+        $normalisedPhone = $phone !== '' ? \JanDev\EmailSystem\Support\Sms\SmsPhone::normalise($phone) : null;
+
+        if ($email === '' && $normalisedPhone === null) {
+            return $phone === '' ? 'no email and no phone' : 'no email and the phone is not usable';
+        }
+
+        return null;
+    }
+
     public static function buildHeader(): array
     {
         $definitions = AudienceUser::getCustomFieldDefinitions();
