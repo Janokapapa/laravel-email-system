@@ -14,6 +14,7 @@ use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\FileUpload;
+use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Select;
 use Filament\Schemas\Components\Section;
@@ -627,6 +628,8 @@ class AudienceUsersRelationManager extends RelationManager
                         'name', 'név', 'nev', 'username', 'user_name', 'full_name',
                         'fullname', 'teljes_nev', 'teljes_név', 'felhasználónév',
                         'first_name', 'keresztnév', 'contact_name', 'display_name',
+                        // Abbreviations real exports use for the same thing.
+                        'fname', 'firstname', 'forename', 'given_name',
                     ], $claimedIndices);
                     $emailIdx = CsvHelper::autoDetectColumn($headers, [
                         'email', 'e-mail', 'emailcim', 'email_cím', 'mail',
@@ -663,6 +666,12 @@ class AudienceUsersRelationManager extends RelationManager
                         $set('map_zerobounce_status', $zbIdx);
                         $claimedIndices[] = $zbIdx;
                     }
+
+                    // A country column is worth finding even when country is not
+                    // a custom field on this instance: it is not imported, it
+                    // only says how to read a number that has no + in front of
+                    // it. Left unclaimed, because nothing consumes it as data.
+                    $set('csv_country_col', CsvHelper::autoDetectColumn($headers, CsvHelper::COUNTRY_ALIASES, $claimedIndices) ?? '');
 
                     $countryDetected = false;
                     $currencyDetected = false;
@@ -727,6 +736,19 @@ class AudienceUsersRelationManager extends RelationManager
                 ->options(fn (): array => $this->csvColumnOptions)
                 ->visible(fn (): bool => !empty($this->csvColumnOptions))
                 ->helperText(__('Required for SMS campaigns. Numbers are normalised on import.')),
+
+            // Exports very often write the number with no international prefix
+            // at all ("447891070032", "07891070032"). Those cannot be sent as
+            // they stand and must not be guessed at, so the country is asked for
+            // once here instead. A mapped country column wins per row.
+            Hidden::make('csv_country_col'),
+
+            Select::make('phone_country')
+                ->label(__('Phone country'))
+                ->options(CsvHelper::getCountryOptions())
+                ->searchable()
+                ->visible(fn (): bool => !empty($this->csvColumnOptions))
+                ->helperText(__('Used only for numbers written without + or 00. A country column in the file takes precedence.')),
 
         ];
 
@@ -885,6 +907,15 @@ class AudienceUsersRelationManager extends RelationManager
             $defaultCountry = $data['default_country'];
         }
 
+        // Country used to read numbers that carry no international prefix. The
+        // file's own column is preferred over the operator's choice, because a
+        // mixed-market list is one country per row, not one per import.
+        $countryIdx = $cfMapping['country']['index']
+            ?? (($data['csv_country_col'] ?? '') !== '' ? (int) $data['csv_country_col'] : null);
+        $fallbackPhoneCountry = ($data['phone_country'] ?? '') !== ''
+            ? (string) $data['phone_country']
+            : $defaultCountry;
+
         // Default currency when no currency column is mapped
         $defaultCurrency = null;
         if (!isset($cfMapping['currency']) && isset($defBySlug['currency'])) {
@@ -936,12 +967,14 @@ class AudienceUsersRelationManager extends RelationManager
             $name = $nameIdx !== null ? trim($row[$nameIdx] ?? '') : '';
             $email = $emailIdx !== null ? trim($row[$emailIdx] ?? '') : '';
             $rawPhone = $phoneIdx !== null ? trim($row[$phoneIdx] ?? '') : '';
-            $phone = $rawPhone !== '' ? SmsPhone::normalise($rawPhone) : null;
+            $rowCountry = $countryIdx !== null ? trim($row[$countryIdx] ?? '') : '';
+            $phoneCountry = $rowCountry !== '' ? $rowCountry : $fallbackPhoneCountry;
+            $phone = $rawPhone !== '' ? SmsPhone::normalise($rawPhone, $phoneCountry) : null;
 
             // A row needs one usable contact and nothing else. Requiring an
             // e-mail would throw away every row of a phone-only SMS list;
             // requiring a name would throw away a nameless number export.
-            if (CsvHelper::contactError($email, $rawPhone) !== null) {
+            if (CsvHelper::contactError($email, $rawPhone, $phoneCountry) !== null) {
                 $skippedInvalid++;
                 continue;
             }

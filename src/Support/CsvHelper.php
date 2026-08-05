@@ -29,6 +29,16 @@ class CsvHelper
     ];
 
     /**
+     * Headers that carry a country, used to read numbers written with no
+     * international prefix. Detected even when country is not a custom field:
+     * the column is not imported, it only tells us how to read the number.
+     */
+    public const COUNTRY_ALIASES = [
+        'country', 'country_code', 'countrycode', 'iso', 'iso2', 'iso_code',
+        'orszag', 'ország', 'orszagkod', 'országkód', 'market', 'geo',
+    ];
+
+    /**
      * Why this row cannot be imported, or null when it can.
      *
      * A contact has to be reachable SOME way. Which way depends on the channel:
@@ -42,7 +52,7 @@ class CsvHelper
      * a junk phone column is still a good e-mail list, and the number is simply
      * dropped.
      */
-    public static function contactError(?string $email, ?string $phone): ?string
+    public static function contactError(?string $email, ?string $phone, ?string $country = null): ?string
     {
         $email = trim((string) $email);
         $phone = trim((string) $phone);
@@ -51,7 +61,7 @@ class CsvHelper
             return 'invalid email';
         }
 
-        $normalisedPhone = $phone !== '' ? \JanDev\EmailSystem\Support\Sms\SmsPhone::normalise($phone) : null;
+        $normalisedPhone = $phone !== '' ? \JanDev\EmailSystem\Support\Sms\SmsPhone::normalise($phone, $country) : null;
 
         if ($email === '' && $normalisedPhone === null) {
             return $phone === '' ? 'no email and no phone' : 'no email and the phone is not usable';

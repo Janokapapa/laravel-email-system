@@ -54,7 +54,7 @@ final class SmsPhone
      * national number (07700900123) is still refused: the country would have to
      * be guessed, and a guess here means texting a stranger.
      */
-    public static function normalise(?string $phone): ?string
+    public static function normalise(?string $phone, ?string $country = null): ?string
     {
         if ($phone === null) {
             return null;
@@ -67,7 +67,68 @@ final class SmsPhone
             $clean = '+' . substr($clean, 2);
         }
 
-        return preg_match(self::E164_REGEX, $clean) === 1 ? $clean : null;
+        if (preg_match(self::E164_REGEX, $clean) === 1) {
+            return $clean;
+        }
+
+        return self::withCountry($clean, $country);
+    }
+
+    /**
+     * Dialling code per country, for the countries the import offers.
+     *
+     * Kept here rather than derived from the price list: a price map is about
+     * what a message costs, and a missing price must not change what a number
+     * means.
+     */
+    public const DIAL_CODES = [
+        'GB' => '44', 'US' => '1',  'DE' => '49', 'FR' => '33', 'ES' => '34',
+        'IT' => '39', 'NL' => '31', 'BE' => '32', 'AT' => '43', 'CH' => '41',
+        'IE' => '353', 'SE' => '46', 'NO' => '47', 'DK' => '45', 'FI' => '358',
+        'PT' => '351', 'GR' => '30', 'PL' => '48', 'CZ' => '420', 'SK' => '421',
+        'HU' => '36', 'RO' => '40', 'BG' => '359', 'HR' => '385', 'SI' => '386',
+        'RS' => '381', 'LT' => '370', 'LV' => '371', 'EE' => '372', 'CA' => '1',
+        'AU' => '61', 'NZ' => '64', 'BR' => '55', 'MX' => '52', 'JP' => '81',
+        'IN' => '91', 'ZA' => '27', 'AE' => '971', 'TR' => '90', 'UA' => '380',
+    ];
+
+    /**
+     * A number written without any international prefix, read against a known
+     * country.
+     *
+     * This is not the guessing the class refuses to do elsewhere: the country
+     * comes from the operator or from a column in the same file, so nothing is
+     * inferred from the digits. Exports routinely write "447891070032" or
+     * "07891070032" for the same GB number, and without this every such row is
+     * dropped.
+     */
+    private static function withCountry(string $clean, ?string $country): ?string
+    {
+        if ($country === null) {
+            return null;
+        }
+
+        $dial = self::DIAL_CODES[strtoupper(trim($country))] ?? null;
+        if ($dial === null) {
+            return null;
+        }
+
+        $digits = preg_replace('/\D+/', '', $clean) ?? '';
+        if ($digits === '') {
+            return null;
+        }
+
+        if (str_starts_with($digits, $dial)) {
+            // Already carries its country code, just no plus.
+            $candidate = '+' . $digits;
+        } elseif (str_starts_with($digits, '0')) {
+            // National trunk prefix: dropped, not kept, when going international.
+            $candidate = '+' . $dial . substr($digits, 1);
+        } else {
+            $candidate = '+' . $dial . $digits;
+        }
+
+        return preg_match(self::E164_REGEX, $candidate) === 1 ? $candidate : null;
     }
 
     /**
