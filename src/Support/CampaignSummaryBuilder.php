@@ -177,12 +177,41 @@ class CampaignSummaryBuilder
         if ($body) {
             $html .= '<details class="cs-details">';
             $html .= '<summary><span class="cs-arrow">▶</span> ' . ($isSms ? __('Message Preview') : __('Email Body Preview')) . '</summary>';
-            if ($contentType === 'html') {
+            if ($isSms) {
+                // Show the message as it goes out. Every URL is replaced by a
+                // short link of the real length, one per recipient, so a preview
+                // carrying the original URL misstates both what is read and how
+                // many segments are paid for.
+                $smsBody = \JanDev\EmailSystem\Support\Sms\SmsText::previewShortenedLinks(
+                    \JanDev\EmailSystem\Support\Sms\SmsText::stripHtml($body),
+                    \JanDev\EmailSystem\Support\Sms\ShortLinkClient::sampleUrl()
+                );
+                if (config('email-system.sms.fold_accents', true)) {
+                    $smsBody = \JanDev\EmailSystem\Support\Sms\SmsText::foldToGsm7($smsBody);
+                }
+
+                $segments = \JanDev\EmailSystem\Support\Sms\SmsText::segments($smsBody);
+                $encoding = \JanDev\EmailSystem\Support\Sms\SmsText::encodingOf($smsBody);
+
+                $html .= '<div class="cs-plaintext">' . e($smsBody) . '</div>';
+                $html .= '<div style="font-size:12px;color:#9ca3af;padding:4px 0;">'
+                    . e(sprintf(
+                        /* translators: sample link stands in for the per-recipient short link */
+                        __('%d segment(s) · %d characters · %s · links shortened per recipient (%s is a stand-in of the same length)'),
+                        $segments,
+                        mb_strlen($smsBody),
+                        $encoding,
+                        \JanDev\EmailSystem\Support\Sms\ShortLinkClient::sampleUrl()
+                    ))
+                    . '</div>';
+                $html .= '</details>';
+            } elseif ($contentType === 'html') {
                 $html .= '<iframe class="cs-preview-frame" srcdoc="' . htmlspecialchars($body, ENT_QUOTES, 'UTF-8') . '"></iframe>';
+                $html .= '</details>';
             } else {
                 $html .= '<div class="cs-plaintext">' . e($body) . '</div>';
+                $html .= '</details>';
             }
-            $html .= '</details>';
         }
 
         // ── Variation Previews ──
