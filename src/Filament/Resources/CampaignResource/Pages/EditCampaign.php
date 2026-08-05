@@ -311,20 +311,33 @@ class EditCampaign extends EditRecord
                         ->required(fn (): bool => !($this->record?->isSms() ?? false))
                         ->extraAttributes(['x-on:change' => 'if(window.__fs)window.__fs($event.target.value)']),
 
+                    // An SMS has no From address and nothing to reply to; the
+                    // recipient sees the sender id configured for the provider.
+                    // Left visible these were not merely noise: being required,
+                    // they made an SMS campaign unsaveable on this screen.
                     TextInput::make('sender_display_name')
                         ->label(__('From Name'))
-                        ->required(),
+                        ->visible(fn (): bool => !($this->record?->isSms() ?? false))
+                        ->required(fn (): bool => !($this->record?->isSms() ?? false)),
 
                     TextInput::make('sender_address')
                         ->label(__('From Address'))
                         ->email()
-                        ->required(),
+                        ->visible(fn (): bool => !($this->record?->isSms() ?? false))
+                        ->required(fn (): bool => !($this->record?->isSms() ?? false)),
 
                     TextInput::make('reply_to')
                         ->label(__('Reply-To'))
                         ->email()
+                        ->visible(fn (): bool => !($this->record?->isSms() ?? false))
                         ->helperText(__('Leave empty to use From Address'))
                         ->nullable(),
+
+                    // What the recipient actually sees on an SMS.
+                    Placeholder::make('sms_originator')
+                        ->label(__('Sender ID'))
+                        ->visible(fn (): bool => $this->record?->isSms() ?? false)
+                        ->content(fn (): string => (string) config('email-system.sms.originator', '—')),
                 ])
                 ->afterValidation(function () {
                     $this->saveStepData();
