@@ -650,6 +650,60 @@ class EditCampaign extends EditRecord
                             '</p>'
                         )),
 
+                    // The bill, before it is a bill. The estimate walks the real
+                    // audience and resolves the message per recipient, because
+                    // both halves vary: the name changes the segment count, the
+                    // country changes the rate.
+                    Placeholder::make('sms_cost_estimate')
+                        ->label(__('Estimated cost'))
+                        ->visible(fn (): bool => $this->record?->isSms() ?? false)
+                        ->content(function (Get $get): HtmlString {
+                            $campaign = $this->record;
+                            if (!$campaign || !$campaign->isSms()) {
+                                return new HtmlString('');
+                            }
+
+                            // Estimate what is on screen, not what was saved last.
+                            $campaign = clone $campaign;
+                            $campaign->body = (string) $get('body');
+                            $campaign->audience_group_ids = $get('audience_group_ids') ?? $campaign->audience_group_ids;
+
+                            if (trim((string) $campaign->body) === '') {
+                                return new HtmlString('<span class="text-gray-500">' . __('Write the message first.') . '</span>');
+                            }
+
+                            $estimate = \JanDev\EmailSystem\Support\Sms\SmsCampaignSender::estimate($campaign);
+                            $recipients = (int) ($estimate['recipients'] ?? 0);
+
+                            if ($recipients === 0) {
+                                return new HtmlString('<span class="text-warning-600">' . __('No sendable number in the selected lists.') . '</span>');
+                            }
+
+                            $cost = $estimate['cost'] ?? null;
+                            $segments = (int) ($estimate['billable_segments'] ?? 0);
+
+                            $html = '<strong>' . ($cost === null ? '—' : number_format((float) $cost, 2) . ' EUR') . '</strong>'
+                                . ' · ' . number_format($recipients) . ' ' . __('recipients')
+                                . ' · ' . number_format($segments) . ' ' . __('billable segments')
+                                . ' · ' . e((string) ($estimate['encoding'] ?? ''));
+
+                            $ucs2 = (int) ($estimate['ucs2_recipients'] ?? 0);
+                            if ($ucs2 > 0) {
+                                $html .= '<br><span class="text-warning-600">'
+                                    . __(':count messages fall outside the GSM alphabet and cost double.', ['count' => number_format($ucs2)])
+                                    . '</span>';
+                            }
+
+                            $remaining = \JanDev\EmailSystem\Support\Sms\SmsCampaignSender::dailyRemaining();
+                            if ($remaining !== null && $remaining < $recipients) {
+                                $html .= '<br><span class="text-warning-600">'
+                                    . __('Only :remaining messages left in today\'s cap.', ['remaining' => number_format($remaining)])
+                                    . '</span>';
+                            }
+
+                            return new HtmlString($html);
+                        }),
+
                     // A test SMS goes to numbers typed here and to nobody else:
                     // the sender treats them as a replacement for the audience,
                     // never an addition, so a mis-click cannot text the list.
