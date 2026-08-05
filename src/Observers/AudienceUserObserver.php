@@ -16,7 +16,16 @@ class AudienceUserObserver
      */
     public function created(AudienceUser $audienceUser): void
     {
-        $bouncedEmail = BouncedEmail::where('email', strtolower($audienceUser->email))->first();
+        // A phone-only row has no address, and both checks below are about
+        // addresses. Passing the null through would look up the empty string,
+        // which matches any blank row in the bounce registry — one such row
+        // would deactivate every imported number.
+        $email = trim((string) $audienceUser->email);
+        if ($email === '') {
+            return;
+        }
+
+        $bouncedEmail = BouncedEmail::where('email', strtolower($email))->first();
 
         if ($bouncedEmail) {
             $audienceUser->updateQuietly([
