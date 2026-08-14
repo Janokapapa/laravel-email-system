@@ -33,6 +33,24 @@ class SmsSuppressionResource extends Resource
 
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-phone-x-mark';
 
+    /**
+     * Hidden when the host project sets SMS_OPT_OUTS_MENU to a falsy value
+     * (no / false / 0 / off). Shown by default. Routes stay registered either
+     * way, so a bookmarked deep link keeps working.
+     */
+    public static function shouldRegisterNavigation(): bool
+    {
+        $value = config('email-system.sms_opt_outs_menu', true);
+
+        // Unset or blank means "not configured", which must stay visible -
+        // filter_var() alone would read both as false.
+        if ($value === null || $value === '') {
+            return true;
+        }
+
+        return filter_var($value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) ?? true;
+    }
+
     public static function getNavigationLabel(): string
     {
         return __('SMS Opt-outs');

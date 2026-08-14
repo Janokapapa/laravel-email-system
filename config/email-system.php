@@ -106,6 +106,19 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | SMS Opt-outs Menu
+    |--------------------------------------------------------------------------
+    |
+    | Whether the "SMS Opt-outs" navigation item is shown in the admin panel.
+    | Defaults to true. Projects that do not send SMS can hide it with
+    | SMS_OPT_OUTS_MENU=no in their .env - the routes stay registered, so an
+    | existing deep link keeps working.
+    |
+    */
+    'sms_opt_outs_menu' => env('SMS_OPT_OUTS_MENU', true),
+
+    /*
+    |--------------------------------------------------------------------------
     | Branding
     |--------------------------------------------------------------------------
     */
