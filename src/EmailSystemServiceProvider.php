@@ -66,6 +66,7 @@ class EmailSystemServiceProvider extends ServiceProvider
                 Console\Commands\BackfillPmtaStats::class,
                 Console\Commands\SmsTest::class,
                 Console\Commands\PmtaBounceSummary::class,
+                Console\Commands\CompactEmailLogs::class,
             ]);
         }
     }

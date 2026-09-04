@@ -46,6 +46,7 @@ class EmailLog extends Model
         'complained',
         'complained_at',
         'delivered_at',
+        'compacted_at',
     ];
 
     protected $casts = [
@@ -60,6 +61,7 @@ class EmailLog extends Model
         'complained' => 'boolean',
         'complained_at' => 'datetime',
         'delivered_at' => 'datetime',
+        'compacted_at' => 'datetime',
     ];
 
     public function emailTemplate()

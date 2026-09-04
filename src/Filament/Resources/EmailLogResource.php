@@ -183,7 +183,24 @@ class EmailLogResource extends Resource
                     Placeholder::make('message_preview')
                         ->label('')
                         ->content(function ($record): HtmlString {
-                            if (!$record || !$record->message) {
+                            if (!$record) {
+                                return new HtmlString('<p class="text-gray-400">' . __('No content') . '</p>');
+                            }
+
+                            // An old log whose body was dropped by
+                            // email-system:compact-logs. Saying so beats an
+                            // empty frame that looks like a bug.
+                            if (!$record->message && $record->compacted_at) {
+                                return new HtmlString(
+                                    '<p class="text-gray-400">'
+                                    . e(__('The content of this message was archived on :date. Statistics are kept.', [
+                                        'date' => $record->compacted_at->format('Y-m-d'),
+                                    ]))
+                                    . '</p>'
+                                );
+                            }
+
+                            if (!$record->message) {
                                 return new HtmlString('<p class="text-gray-400">' . __('No content') . '</p>');
                             }
 
